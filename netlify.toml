@@ -1,0 +1,25 @@
+# Netlify Configuration for DistriBoissons Pro
+# Ensures SPA client-side routing, Vite production builds, and header security
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA Fallback rule: routes all URLs to index.html with 200 HTTP status
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

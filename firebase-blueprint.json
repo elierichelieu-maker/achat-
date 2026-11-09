@@ -1,0 +1,198 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Article de boisson gazeuse ou alcoolisée en stock",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sku": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "costPrice": { "type": "number" },
+        "salePrice": { "type": "number" },
+        "stock": { "type": "number" },
+        "minStockAlert": { "type": "number" },
+        "reorderQuantity": { "type": "number" },
+        "alcoholDegree": { "type": "number" },
+        "volume": { "type": "string" },
+        "isConsigne": { "type": "boolean" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "sku", "name", "category", "costPrice", "salePrice", "stock"]
+    },
+    "Seller": {
+      "title": "Seller",
+      "description": "Commercial ou responsable des ventes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "email": { "type": "string" },
+        "avatar": { "type": "string" },
+        "targetMonthlyRevenue": { "type": "number" },
+        "commissionRate": { "type": "number" },
+        "phone": { "type": "string" },
+        "status": { "type": "string" },
+        "lastLogin": { "type": "string" },
+        "password": { "type": "string" }
+      },
+      "required": ["id", "name", "role", "email"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Client établissement CHR, bar, hôtel ou caviste",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "company": { "type": "string" },
+        "type": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "postalCode": { "type": "string" },
+        "activeKegsConsigned": { "type": "number" },
+        "totalSpent": { "type": "number" },
+        "creditLimit": { "type": "number" },
+        "paymentTerms": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "company", "type"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Facture et bon de livraison de boissons",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "date": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "sellerName": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerCompany": { "type": "string" },
+        "totalHT": { "type": "number" },
+        "taxRate": { "type": "number" },
+        "totalTTC": { "type": "number" },
+        "totalCost": { "type": "number" },
+        "netProfit": { "type": "number" },
+        "marginPercent": { "type": "number" },
+        "status": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "paidAmount": { "type": "number" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "invoiceNumber", "date", "sellerId", "customerName", "totalHT", "totalTTC", "status"]
+    },
+    "StockMovement": {
+      "title": "StockMovement",
+      "description": "Historique des mouvements d'entrées, sorties et ajustements de stocks",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string" },
+        "productName": { "type": "string" },
+        "type": { "type": "string" },
+        "quantity": { "type": "number" },
+        "previousStock": { "type": "number" },
+        "newStock": { "type": "number" },
+        "reason": { "type": "string" },
+        "date": { "type": "string" },
+        "operator": { "type": "string" }
+      },
+      "required": ["id", "productId", "type", "quantity", "previousStock", "newStock", "date"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Paramètres d'entreprise et règles de gestion des consignes",
+      "type": "object",
+      "properties": {
+        "companyName": { "type": "string" },
+        "companyAddress": { "type": "string" },
+        "companySiret": { "type": "string" },
+        "defaultTaxRate": { "type": "number" },
+        "kegConsignmentDepositPrice": { "type": "number" },
+        "crateConsignmentDepositPrice": { "type": "number" },
+        "defaultStockMinAlert": { "type": "number" },
+        "currency": { "type": "string" },
+        "contactEmail": { "type": "string" },
+        "contactPhone": { "type": "string" },
+        "autoDeductStockOnSale": { "type": "boolean" }
+      },
+      "required": ["companyName", "currency"]
+    },
+    "ExchangeRateConfig": {
+      "title": "ExchangeRateConfig",
+      "description": "Taux de change USD et DOP vers Gourdes HTG",
+      "type": "object",
+      "properties": {
+        "usdToHtgBuy": { "type": "number" },
+        "usdToHtgSell": { "type": "number" },
+        "usdToHtgReference": { "type": "number" },
+        "dopToHtgBuy": { "type": "number" },
+        "dopToHtgSell": { "type": "number" },
+        "dopToHtgReference": { "type": "number" },
+        "lastUpdated": { "type": "string" }
+      },
+      "required": ["usdToHtgBuy", "usdToHtgSell", "lastUpdated"]
+    },
+    "ExchangeTransaction": {
+      "title": "ExchangeTransaction",
+      "description": "Transaction de bureau de change devises",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "type": { "type": "string" },
+        "fromCurrency": { "type": "string" },
+        "toCurrency": { "type": "string" },
+        "amountFrom": { "type": "number" },
+        "rateApplied": { "type": "number" },
+        "amountTo": { "type": "number" },
+        "clientOrBeneficiary": { "type": "string" },
+        "operator": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "date", "type", "fromCurrency", "toCurrency", "amountFrom", "amountTo", "operator"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Catalogue des boissons et niveaux de stocks en entrepôt"
+    },
+    "/sellers/{sellerId}": {
+      "schema": "Seller",
+      "description": "Profils des vendeurs et commissions"
+    },
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Clients CHR, bars, restaurants et dépôts"
+    },
+    "/sales/{saleId}": {
+      "schema": "Sale",
+      "description": "Bons de commande, factures et encaissements"
+    },
+    "/movements/{movementId}": {
+      "schema": "StockMovement",
+      "description": "Mouvements de fûts, casiers et bouteilles"
+    },
+    "/settings/{settingId}": {
+      "schema": "AppSettings",
+      "description": "Configuration globale de l'entreprise et consignes"
+    },
+    "/exchange_rates/{rateId}": {
+      "schema": "ExchangeRateConfig",
+      "description": "Configuration des taux de change en cours"
+    },
+    "/exchange_transactions/{transactionId}": {
+      "schema": "ExchangeTransaction",
+      "description": "Historique des opérations de change"
+    }
+  }
+}

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="50%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+
+  <!-- Inner subtle border -->
+  <rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4" />
+
+  <!-- Beverage Bottle & Keg silhouettes -->
+  <!-- Keg / Cask Barrel on left -->
+  <g transform="translate(100, 150) scale(0.65)">
+    <!-- Barrel body -->
+    <path d="M40 80 Q10 180 40 280 L180 280 Q210 180 180 80 Z" fill="#334155" stroke="#64748b" stroke-width="8" />
+    <!-- Keg Bands -->
+    <path d="M26 130 Q110 145 194 130" fill="none" stroke="#94a3b8" stroke-width="8" stroke-linecap="round" />
+    <path d="M26 230 Q110 245 194 230" fill="none" stroke="#94a3b8" stroke-width="8" stroke-linecap="round" />
+    <!-- Tap -->
+    <path d="M190 170 L230 170 L230 190" fill="none" stroke="#fbbf24" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- Premium Wine / Champagne bottle on right -->
+  <g transform="translate(240, 110) scale(0.7)">
+    <!-- Bottle neck and body -->
+    <path d="M110 50 L110 100 L70 170 L70 340 Q70 360 90 360 L150 360 Q170 360 170 340 L170 170 L130 100 L130 50 Z" fill="url(#accentGrad)" />
+    <!-- Bottle Foil Neck -->
+    <path d="M106 50 L134 50 L134 95 L106 95 Z" fill="url(#goldGrad)" />
+    <!-- Label -->
+    <rect x="80" y="210" width="80" height="90" rx="8" fill="#ffffff" opacity="0.9" />
+    <!-- Stylized check / graph on label -->
+    <polyline points="95,260 115,245 130,255 145,235" fill="none" stroke="#2563eb" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <!-- Sparkling / Carbonated bubbles -->
+  <circle cx="195" cy="190" r="12" fill="#38bdf8" opacity="0.8" />
+  <circle cx="215" cy="150" r="7" fill="#60a5fa" opacity="0.6" />
+  <circle cx="205" cy="115" r="5" fill="#93c5fd" opacity="0.7" />
+
+  <!-- App Brand Text at bottom -->
+  <text x="256" y="445" font-family="'Plus Jakarta Sans', system-ui, sans-serif" font-size="44" font-weight="800" fill="#ffffff" text-anchor="middle" letter-spacing="2">
+    OPTIVENTE<tspan fill="#38bdf8"> PRO</tspan>
+  </text>
+</svg>

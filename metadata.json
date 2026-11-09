@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Remix Remix Remix Remix OptiVente Pro",
+  "description": "Système de gestion des ventes et stocks pour la distribution de boissons gazeuses et alcoolisées (CHR, cavistes, événements, consignes et fûts).",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
