@@ -131,6 +131,7 @@ export interface AppSettings {
   contactEmail: string;
   contactPhone: string;
   autoDeductStockOnSale: boolean;
+  updatedAt?: string;
 }
 
 export interface ExchangeRateConfig {

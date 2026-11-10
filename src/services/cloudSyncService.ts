@@ -5,6 +5,7 @@ import {
   deleteDoc,
   onSnapshot,
   getDocs,
+  getDoc,
   writeBatch,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
@@ -76,11 +77,32 @@ export async function seedInitialDataIfEmpty() {
         batch.set(doc(db, COLLECTIONS.MOVEMENTS, m.id), m);
       });
 
-      // Seed Settings
-      batch.set(doc(db, COLLECTIONS.SETTINGS, 'global'), DEFAULT_SETTINGS);
+      // Protect Settings: Never overwrite existing user settings if document exists in Firestore
+      const settingsSnap = await getDoc(doc(db, COLLECTIONS.SETTINGS, 'global'));
+      if (!settingsSnap.exists()) {
+        let initialSettings = DEFAULT_SETTINGS;
+        try {
+          const stored = localStorage.getItem('optiboissons_settings_v2');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed && typeof parsed === 'object' && parsed.companyName) {
+              initialSettings = parsed;
+            }
+          }
+        } catch {
+          // ignore
+        }
+        batch.set(doc(db, COLLECTIONS.SETTINGS, 'global'), {
+          ...initialSettings,
+          updatedAt: initialSettings.updatedAt || new Date().toISOString(),
+        });
+      }
 
-      // Seed Exchange Rates
-      batch.set(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'), DEFAULT_EXCHANGE_RATES);
+      // Protect Exchange Rates: Only seed if current rate doc does not exist
+      const ratesSnap = await getDoc(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'));
+      if (!ratesSnap.exists()) {
+        batch.set(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'), DEFAULT_EXCHANGE_RATES);
+      }
 
       // Seed Exchange Transactions
       INITIAL_EXCHANGE_TRANSACTIONS.forEach((tx) => {
@@ -196,8 +218,23 @@ export function subscribeToSettings(callback: (settings: AppSettings) => void) {
       if (docSnap.exists()) {
         callback(docSnap.data() as AppSettings);
       } else {
-        // Seed settings if missing
-        setDoc(doc(db, COLLECTIONS.SETTINGS, 'global'), DEFAULT_SETTINGS).catch(() => {});
+        // Only seed if completely missing in Firestore, preserving any local customized settings
+        let fallback = DEFAULT_SETTINGS;
+        try {
+          const stored = localStorage.getItem('optiboissons_settings_v2');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed && typeof parsed === 'object' && parsed.companyName) {
+              fallback = parsed;
+            }
+          }
+        } catch {}
+        const stamped: AppSettings = {
+          ...fallback,
+          updatedAt: fallback.updatedAt || new Date().toISOString(),
+        };
+        setDoc(doc(db, COLLECTIONS.SETTINGS, 'global'), stamped, { merge: true }).catch(() => {});
+        callback(stamped);
       }
     },
     (error) => handleFirestoreError(error, OperationType.GET, path)
@@ -282,7 +319,11 @@ export async function forceFullCloudSync(data: FullAppDataPayload): Promise<{ su
       totalItems++;
     });
 
-    batch.set(doc(db, COLLECTIONS.SETTINGS, 'global'), data.settings);
+    const stampedSettings: AppSettings = {
+      ...data.settings,
+      updatedAt: data.settings.updatedAt || new Date().toISOString(),
+    };
+    batch.set(doc(db, COLLECTIONS.SETTINGS, 'global'), stampedSettings);
     totalItems++;
 
     batch.set(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'), data.exchangeRates);
@@ -430,12 +471,23 @@ export async function syncSaveMovement(movement: StockMovement) {
   }
 }
 
-export async function syncSaveSettings(settings: AppSettings) {
+export async function syncSaveSettings(settings: AppSettings): Promise<boolean> {
   const path = `${COLLECTIONS.SETTINGS}/global`;
+  const stamped: AppSettings = {
+    ...settings,
+    updatedAt: settings.updatedAt || new Date().toISOString(),
+  };
   try {
-    await setDoc(doc(db, COLLECTIONS.SETTINGS, 'global'), settings);
+    await setDoc(doc(db, COLLECTIONS.SETTINGS, 'global'), stamped, { merge: true });
+    try {
+      localStorage.setItem('optiboissons_settings_v2', JSON.stringify(stamped));
+    } catch (e) {
+      console.error(e);
+    }
+    return true;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
+    return false;
   }
 }
 

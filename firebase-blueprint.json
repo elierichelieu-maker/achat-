@@ -122,7 +122,8 @@
         "currency": { "type": "string" },
         "contactEmail": { "type": "string" },
         "contactPhone": { "type": "string" },
-        "autoDeductStockOnSale": { "type": "boolean" }
+        "autoDeductStockOnSale": { "type": "boolean" },
+        "updatedAt": { "type": "string" }
       },
       "required": ["companyName", "currency"]
     },

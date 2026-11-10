@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppSettings, Seller } from '../../types';
 import {
   Settings,
@@ -15,6 +15,7 @@ import {
   CreditCard,
   Smartphone,
   Cloud,
+  Lock,
 } from 'lucide-react';
 import { formatHTG } from '../../utils/formatters';
 import { MobileDeploymentGuideModal } from '../mobile/MobileDeploymentGuideModal';
@@ -37,15 +38,34 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
   onOpenCloudSync,
 }) => {
   const [formData, setFormData] = useState<AppSettings>(settings);
+  const [isDirty, setIsDirty] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showMobileModal, setShowMobileModal] = useState(false);
 
+  // Sync formData when settings prop updates from Cloud, only if user isn't currently editing
+  useEffect(() => {
+    if (!isDirty) {
+      setFormData(settings);
+    }
+  }, [settings, isDirty]);
+
+  const updateField = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+    setIsDirty(true);
+    setFormData((prev) => ({ ...prev, [key]: value }));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveSettings(formData);
+    const stampedSettings: AppSettings = {
+      ...formData,
+      updatedAt: new Date().toISOString(),
+    };
+    onSaveSettings(stampedSettings);
+    setFormData(stampedSettings);
+    setIsDirty(false);
     setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 3000);
+    setTimeout(() => setSaveSuccess(false), 3500);
   };
 
   const handleExportJSON = () => {
@@ -67,22 +87,42 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
   return (
     <div className="space-y-6 max-w-5xl">
       {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
         <div>
-          <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-            Paramètres Généraux & Règles Métier
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+              Paramètres Généraux & Règles Métier
+            </h2>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+              <ShieldCheck className="w-3 h-3 text-emerald-600" />
+              <span>Protégé contre écrasement</span>
+            </span>
+          </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Informations de l'établissement distributeur, barèmes des consignes de fûts, taux de TVA et gestion des commerciaux
+            Informations de l'établissement distributeur, barèmes des consignes de fûts, taux de TVA et gestion des commerciaux. Vos modifications sont enregistrées définitivement dans le Cloud.
           </p>
+          {settings.updatedAt && (
+            <p className="text-[11px] text-slate-400 font-mono mt-1">
+              Dernière synchronisation réussie : {new Date(settings.updatedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </p>
+          )}
         </div>
 
-        {saveSuccess && (
-          <div className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center gap-1.5 animate-in fade-in duration-200">
-            <Check className="w-4 h-4 text-emerald-600" />
-            <span className="font-semibold">Paramètres enregistrés avec succès</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {isDirty && (
+            <div className="p-2 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-xs flex items-center gap-1.5 animate-pulse">
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              <span className="font-semibold">Modifications non enregistrées</span>
+            </div>
+          )}
+
+          {saveSuccess && (
+            <div className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs flex items-center gap-1.5 animate-in fade-in duration-200">
+              <Check className="w-4 h-4 text-emerald-600" />
+              <span className="font-semibold">Paramètres enregistrés & verrouillés dans le Cloud</span>
+            </div>
+          )}
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -111,7 +151,7 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
                 type="text"
                 required
                 value={formData.companyName}
-                onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
+                onChange={(e) => updateField('companyName', e.target.value)}
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 font-medium"
               />
             </div>
@@ -123,7 +163,7 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
               <input
                 type="text"
                 value={formData.companySiret}
-                onChange={(e) => setFormData({ ...formData, companySiret: e.target.value })}
+                onChange={(e) => updateField('companySiret', e.target.value)}
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none font-mono"
               />
             </div>
@@ -135,7 +175,7 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
               <input
                 type="text"
                 value={formData.companyAddress}
-                onChange={(e) => setFormData({ ...formData, companyAddress: e.target.value })}
+                onChange={(e) => updateField('companyAddress', e.target.value)}
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none"
               />
             </div>
@@ -147,7 +187,7 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
               <input
                 type="email"
                 value={formData.contactEmail}
-                onChange={(e) => setFormData({ ...formData, contactEmail: e.target.value })}
+                onChange={(e) => updateField('contactEmail', e.target.value)}
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none"
               />
             </div>
@@ -159,7 +199,7 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
               <input
                 type="text"
                 value={formData.contactPhone}
-                onChange={(e) => setFormData({ ...formData, contactPhone: e.target.value })}
+                onChange={(e) => updateField('contactPhone', e.target.value)}
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none font-mono"
               />
             </div>
@@ -193,10 +233,7 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
                 step="50"
                 value={formData.kegConsignmentDepositPrice}
                 onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    kegConsignmentDepositPrice: parseFloat(e.target.value) || 0,
-                  })
+                  updateField('kegConsignmentDepositPrice', parseFloat(e.target.value) || 0)
                 }
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-mono font-bold text-slate-900 focus:outline-none"
               />
@@ -215,10 +252,7 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
                 step="10"
                 value={formData.crateConsignmentDepositPrice}
                 onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    crateConsignmentDepositPrice: parseFloat(e.target.value) || 0,
-                  })
+                  updateField('crateConsignmentDepositPrice', parseFloat(e.target.value) || 0)
                 }
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-mono font-bold text-slate-900 focus:outline-none"
               />
@@ -244,17 +278,14 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
                 value={Math.round(formData.defaultTaxRate * 100 * 10) / 10}
                 onChange={(e) => {
                   const val = parseFloat(e.target.value);
-                  setFormData({
-                    ...formData,
-                    defaultTaxRate: isNaN(val) ? 0 : Math.max(0, val) / 100,
-                  });
+                  updateField('defaultTaxRate', isNaN(val) ? 0 : Math.max(0, val) / 100);
                 }}
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg font-mono font-bold text-slate-900 focus:outline-none"
               />
               <div className="flex items-center gap-1.5 mt-2">
                 <button
                   type="button"
-                  onClick={() => setFormData({ ...formData, defaultTaxRate: 0 })}
+                  onClick={() => updateField('defaultTaxRate', 0)}
                   className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
                     formData.defaultTaxRate === 0
                       ? 'bg-amber-500 text-slate-950 ring-1 ring-amber-600'
@@ -265,7 +296,7 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setFormData({ ...formData, defaultTaxRate: 0.1 })}
+                  onClick={() => updateField('defaultTaxRate', 0.1)}
                   className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
                     Math.round(formData.defaultTaxRate * 100) === 10
                       ? 'bg-amber-500 text-slate-950 font-bold'
@@ -276,7 +307,7 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setFormData({ ...formData, defaultTaxRate: 0.2 })}
+                  onClick={() => updateField('defaultTaxRate', 0.2)}
                   className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
                     Math.round(formData.defaultTaxRate * 100) === 20
                       ? 'bg-amber-500 text-slate-950 font-bold'
@@ -306,7 +337,7 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
                 type="checkbox"
                 checked={formData.autoDeductStockOnSale}
                 onChange={(e) =>
-                  setFormData({ ...formData, autoDeductStockOnSale: e.target.checked })
+                  updateField('autoDeductStockOnSale', e.target.checked)
                 }
                 className="sr-only peer"
               />

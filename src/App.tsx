@@ -236,10 +236,9 @@ export default function App() {
       const stored = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && (parsed.defaultTaxRate === 0.2 || parsed.defaultTaxRate === undefined)) {
-          parsed.defaultTaxRate = 0.0;
+        if (parsed && typeof parsed === 'object' && parsed.companyName) {
+          return parsed;
         }
-        return parsed;
       }
       return DEFAULT_SETTINGS;
     } catch {
@@ -413,7 +412,18 @@ export default function App() {
     });
 
     const unsubSettings = subscribeToSettings((sett) => {
-      setSettings(sett);
+      setSettings((prev) => {
+        if (prev && prev.updatedAt && sett.updatedAt) {
+          const prevTime = new Date(prev.updatedAt).getTime();
+          const settTime = new Date(sett.updatedAt).getTime();
+          if (prevTime > settTime) {
+            // Local settings are newer than incoming cloud snapshot, preserve local and sync
+            syncSaveSettings(prev);
+            return prev;
+          }
+        }
+        return sett;
+      });
       setIsCloudConnected(true);
     });
 
@@ -683,9 +693,18 @@ export default function App() {
   };
 
   // Handler: Save Settings
-  const handleSaveSettings = (newSettings: AppSettings) => {
-    setSettings(newSettings);
-    syncSaveSettings(newSettings);
+  const handleSaveSettings = async (newSettings: AppSettings) => {
+    const stampedSettings: AppSettings = {
+      ...newSettings,
+      updatedAt: new Date().toISOString(),
+    };
+    setSettings(stampedSettings);
+    try {
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(stampedSettings));
+    } catch (e) {
+      console.error(e);
+    }
+    await syncSaveSettings(stampedSettings);
   };
 
   // Handler: Update Sale / Invoice status
