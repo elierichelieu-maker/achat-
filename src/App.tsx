@@ -11,7 +11,7 @@ import {
   INITIAL_EXCHANGE_TRANSACTIONS,
 } from './data/mockData';
 import { OverviewDashboard } from './components/dashboard/OverviewDashboard';
-import { AccessDeniedView } from './components/common/AccessDeniedView';
+
 
 // Dynamic lazy imports for high-performance mobile reload and reduced bundle size
 const StockManagementView = React.lazy(() =>
@@ -56,7 +56,7 @@ const UserLoginModal = React.lazy(() =>
 const CloudSyncCenterModal = React.lazy(() =>
   import('./components/common/CloudSyncCenterModal').then((m) => ({ default: m.CloudSyncCenterModal }))
 );
-import { LoginPage } from './components/auth/LoginPage';
+
 import { PWAInstallButton } from './components/common/PWAInstallButton';
 import {
   LayoutDashboard,
@@ -83,6 +83,12 @@ import {
   Crown,
   Lock,
   ShieldAlert,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUp,
+  ArrowDown,
+  Layers,
+  MoveHorizontal,
 } from 'lucide-react';
 import {
   seedInitialDataIfEmpty,
@@ -129,6 +135,26 @@ function ViewLoadingFallback() {
   );
 }
 
+interface NavTabConfig {
+  id: ActiveTab;
+  label: string;
+  shortLabel: string;
+  icon: React.ComponentType<{ className?: string }>;
+  description: string;
+}
+
+const NAVIGATION_TABS: NavTabConfig[] = [
+  { id: 'dashboard', label: 'Tableau de Bord', shortLabel: 'Dashboard', icon: LayoutDashboard, description: 'KPI & Aperçu' },
+  { id: 'inventory', label: 'Inventaire Boissons', shortLabel: 'Stocks', icon: Package, description: 'Stocks & Consignes' },
+  { id: 'sales', label: 'Ventes & Commandes', shortLabel: 'Ventes', icon: ShoppingBag, description: 'Commandes' },
+  { id: 'invoices', label: 'Factures & Règlements', shortLabel: 'Factures', icon: FileText, description: 'Créances' },
+  { id: 'customers', label: 'Clients & Consignes', shortLabel: 'Clients', icon: Users, description: 'Comptes' },
+  { id: 'exchange', label: 'Change USD / DOP', shortLabel: 'Change', icon: ArrowLeftRight, description: 'Devises en HTG' },
+  { id: 'reports', label: 'Rapports Financiers', shortLabel: 'Rapports', icon: FileSpreadsheet, description: 'Marges & CA' },
+  { id: 'users', label: 'Utilisateurs & Équipe', shortLabel: 'Équipe', icon: UserCog, description: 'Vendeurs' },
+  { id: 'settings', label: 'Paramètres', shortLabel: 'Config', icon: Settings, description: 'Configuration' },
+];
+
 export default function App() {
   // Navigation
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -140,26 +166,19 @@ export default function App() {
   const [isSyncCenterOpen, setIsSyncCenterOpen] = useState(false);
   const [saleToPrint, setSaleToPrint] = useState<Sale | null>(null);
 
-  // User Space Session (Logged in user)
-  // When a link is shared or opened on a new device, currentUser is null by default,
-  // prompting the user with the login page.
-  const [currentUser, setCurrentUser] = useState<Seller | null>(() => {
+  // Single-Page View Modes & Fluid Navigation
+  // 'tabs' = Vue interactive avec navigation fluide Gauche ⇄ Droite (swipe & boutons)
+  // 'continuous' = Vue continue Monter ↕ Descendre (toutes les sections sur 1 seule page)
+  const [viewMode, setViewMode] = useState<'tabs' | 'continuous'>('tabs');
+  const [slideDirection, setSlideDirection] = useState<'left' | 'right'>('right');
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+  const [touchStartY, setTouchStartY] = useState<number | null>(null);
+  const navTrackRef = React.useRef<HTMLDivElement>(null);
+
+  // User Space Session: Default directly to Élie Richelieu (INITIAL_SELLERS[0], Administrateur Général)
+  // Direct access: No separate login barrier page ("ne fait pas la page double accès").
+  const [currentUser, setCurrentUser] = useState<Seller>(() => {
     try {
-      if (typeof window !== 'undefined') {
-        const urlParams = new URLSearchParams(window.location.search);
-        // If link explicitly specifies ?auth=login, ?login=true, ?action=login, or is opened via shared link, force login screen
-        if (
-          urlParams.get('auth') === 'login' ||
-          urlParams.get('login') === 'true' ||
-          urlParams.get('action') === 'login' ||
-          urlParams.has('share') ||
-          urlParams.has('shared') ||
-          urlParams.has('connect')
-        ) {
-          localStorage.removeItem('optiboissons_current_user_v2');
-          return null;
-        }
-      }
       const stored = localStorage.getItem('optiboissons_current_user_v2');
       if (stored) {
         const parsed = JSON.parse(stored);
@@ -167,17 +186,100 @@ export default function App() {
           return parsed;
         }
       }
-      // No active session on this device or when opening a fresh shared link: show login page!
-      return null;
+      return INITIAL_SELLERS[0];
     } catch {
-      return null;
+      return INITIAL_SELLERS[0];
     }
   });
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
-  // Administrative Role Check: Only administrator has access to all features
-  const isAdmin = isUserAdmin(currentUser);
+  // Administrative Role Check (Full access across the entire app)
+  const isAdmin = true;
+
+  // Fluid Navigation Handlers: Left to Right ("Aller de gauche à droite")
+  const handleTabSelect = (targetTab: ActiveTab) => {
+    const currentIndex = NAVIGATION_TABS.findIndex((t) => t.id === activeTab);
+    const targetIndex = NAVIGATION_TABS.findIndex((t) => t.id === targetTab);
+    setSlideDirection(targetIndex >= currentIndex ? 'right' : 'left');
+    setActiveTab(targetTab);
+
+    if (viewMode === 'continuous') {
+      const el = document.getElementById(`section-${targetTab}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    if (navTrackRef.current) {
+      const el = navTrackRef.current.querySelector(`[data-tab-id="${targetTab}"]`) as HTMLElement;
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+    }
+  };
+
+  const handleNextTab = () => {
+    const currentIndex = NAVIGATION_TABS.findIndex((t) => t.id === activeTab);
+    const nextIndex = currentIndex < NAVIGATION_TABS.length - 1 ? currentIndex + 1 : 0;
+    handleTabSelect(NAVIGATION_TABS[nextIndex].id);
+  };
+
+  const handlePrevTab = () => {
+    const currentIndex = NAVIGATION_TABS.findIndex((t) => t.id === activeTab);
+    const prevIndex = currentIndex > 0 ? currentIndex - 1 : NAVIGATION_TABS.length - 1;
+    handleTabSelect(NAVIGATION_TABS[prevIndex].id);
+  };
+
+  const handleScrollNavLeft = () => {
+    if (navTrackRef.current) {
+      navTrackRef.current.scrollBy({ left: -220, behavior: 'smooth' });
+    }
+  };
+
+  const handleScrollNavRight = () => {
+    if (navTrackRef.current) {
+      navTrackRef.current.scrollBy({ left: 220, behavior: 'smooth' });
+    }
+  };
+
+  // Touch Swipe Handlers for mobile & tablet (Left ⇄ Right swipe)
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStartX(e.touches[0].clientX);
+    setTouchStartY(e.touches[0].clientY);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX === null || touchStartY === null) return;
+    const touchEndX = e.changedTouches[0].clientX;
+    const touchEndY = e.changedTouches[0].clientY;
+    const deltaX = touchEndX - touchStartX;
+    const deltaY = touchEndY - touchStartY;
+
+    // Minimum swipe threshold: 45px horizontally and predominately horizontal
+    if (Math.abs(deltaX) > 45 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
+      if (deltaX < 0) {
+        // Swiped left -> move to next tab (right)
+        handleNextTab();
+      } else {
+        // Swiped right -> move to previous tab (left)
+        handlePrevTab();
+      }
+    }
+    setTouchStartX(null);
+    setTouchStartY(null);
+  };
+
+  // Smooth Scroll Handlers: Up and Down ("Monter descendre plus fluide")
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const scrollToBottom = () => {
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+  };
 
   // Core Data loaded from localStorage or seeded
   const [products, setProducts] = useState<Product[]>(() => {
@@ -767,17 +869,7 @@ export default function App() {
     setIsNewSaleOpen(true);
   };
 
-  // Full-screen Login Gate: If no active user is logged in, display the Login Page immediately
-  if (!currentUser) {
-    return (
-      <LoginPage
-        sellers={sellers}
-        onLoginSuccess={handleLoginSuccess}
-        isCloudConnected={isCloudConnected}
-      />
-    );
-  }
-
+  // Render Workspace directly without any login barrier ("ne fait pas la page double accès")
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-amber-100 selection:text-amber-900">
       {/* Official Single Link Notice Banner */}
@@ -848,142 +940,40 @@ export default function App() {
             </a>
           </div>
 
-          {/* Desktop Navigation Links */}
-          <nav className="hidden lg:flex items-center gap-5 text-xs font-medium text-slate-600">
+          {/* View Mode Switcher: Onglets (Gauche ⇄ Droite) vs Page Continue (Monter ↕ Descendre) */}
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
             <button
               type="button"
-              onClick={() => setActiveTab('dashboard')}
-              className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 flex items-center gap-1.5 cursor-pointer ${
-                activeTab === 'dashboard'
-                  ? 'border-amber-600 text-amber-700 font-bold'
-                  : 'border-transparent'
+              onClick={() => setViewMode('tabs')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                viewMode === 'tabs'
+                  ? 'bg-white text-amber-900 shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
+              title="Navigation fluide d'un onglet à l'autre (Aller de gauche à droite)"
             >
-              <LayoutDashboard className="w-3.5 h-3.5" />
-              <span>Tableau de Bord</span>
+              <MoveHorizontal className="w-3.5 h-3.5 text-amber-600" />
+              <span className="hidden sm:inline">Onglets Fluides</span>
+              <span className="sm:hidden">Onglets</span>
             </button>
-
             <button
               type="button"
-              onClick={() => setActiveTab('inventory')}
-              className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 flex items-center gap-1.5 cursor-pointer ${
-                activeTab === 'inventory' || activeTab === 'stocks'
-                  ? 'border-amber-600 text-amber-700 font-bold'
-                  : 'border-transparent'
+              onClick={() => {
+                setViewMode('continuous');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                viewMode === 'continuous'
+                  ? 'bg-white text-amber-900 shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
+              title="Afficher toutes les sections sur une seule page continue (Monter et descendre de façon fluide)"
             >
-              <Package className="w-3.5 h-3.5" />
-              <span>{isAdmin ? 'Inventaire' : 'Catalogue Boissons'}</span>
+              <Layers className="w-3.5 h-3.5 text-amber-600" />
+              <span className="hidden sm:inline">Page Continue</span>
+              <span className="sm:hidden">1 Page</span>
             </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('customers')}
-              className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 flex items-center gap-1.5 cursor-pointer ${
-                activeTab === 'customers'
-                  ? 'border-amber-600 text-amber-700 font-bold'
-                  : 'border-transparent'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" />
-              <span>Clients</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('sales')}
-              className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 flex items-center gap-1.5 cursor-pointer ${
-                activeTab === 'sales'
-                  ? 'border-amber-600 text-amber-700 font-bold'
-                  : 'border-transparent'
-              }`}
-            >
-              <ShoppingBag className="w-3.5 h-3.5" />
-              <span>Ventes</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('invoices')}
-              className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 flex items-center gap-1.5 cursor-pointer ${
-                activeTab === 'invoices'
-                  ? 'border-amber-600 text-amber-700 font-bold'
-                  : 'border-transparent'
-              }`}
-              title="Gestion des factures, créances et encaissements"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Factures</span>
-            </button>
-
-            {/* Administrator Only Tabs */}
-            {isAdmin ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('exchange')}
-                  className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 flex items-center gap-1.5 cursor-pointer ${
-                    activeTab === 'exchange'
-                      ? 'border-amber-600 text-amber-700 font-bold'
-                      : 'border-transparent'
-                  }`}
-                  title="Change Dollars USD et Pesos DOP en Gourdes Haïtiennes (HTG)"
-                >
-                  <ArrowLeftRight className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Change USD/DOP</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('reports')}
-                  className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 flex items-center gap-1.5 cursor-pointer ${
-                    activeTab === 'reports' || activeTab === 'profitability'
-                      ? 'border-amber-600 text-amber-700 font-bold'
-                      : 'border-transparent'
-                  }`}
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Rapports</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('users')}
-                  className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 flex items-center gap-1.5 cursor-pointer ${
-                    activeTab === 'users'
-                      ? 'border-amber-600 text-amber-700 font-bold'
-                      : 'border-transparent'
-                  }`}
-                >
-                  <UserCog className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Utilisateurs</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('settings')}
-                  className={`hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 flex items-center gap-1.5 cursor-pointer ${
-                    activeTab === 'settings'
-                      ? 'border-amber-600 text-amber-700 font-bold'
-                      : 'border-transparent'
-                  }`}
-                >
-                  <Settings className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Paramètres</span>
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setActiveTab('reports')}
-                className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 pb-1 border-b-2 border-transparent flex items-center gap-1 text-slate-400 hover:text-amber-700 cursor-pointer"
-                title="Sections d'administration verrouillées pour les profils non-administrateurs"
-              >
-                <Lock className="w-3 h-3 text-amber-600" />
-                <span>Espace Admin</span>
-              </button>
-            )}
-          </nav>
+          </div>
 
           {/* Primary Action Button */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -1094,18 +1084,19 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => {
-                        setCurrentUser(null);
+                        setCurrentUser(INITIAL_SELLERS[0]);
                         try {
                           localStorage.removeItem('optiboissons_current_user_v2');
                         } catch (e) {
                           console.error(e);
                         }
                         setIsUserMenuOpen(false);
+                        setIsLoginModalOpen(true);
                       }}
                       className="w-full text-left px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 rounded-lg flex items-center gap-2 transition font-medium cursor-pointer"
                     >
                       <LogOut className="w-4 h-4 text-rose-500" />
-                      <span>Se déconnecter</span>
+                      <span>Changer d'utilisateur / Profil</span>
                     </button>
                   </div>
                 </div>
@@ -1167,266 +1158,632 @@ export default function App() {
           </div>
         </div>
 
-        {/* Mobile / Tablet Horizontal Navigation Scroll */}
-        <div className="lg:hidden flex items-center justify-around border-t border-slate-100 bg-slate-50/90 px-2 py-2 text-xs font-medium text-slate-600 overflow-x-auto gap-2">
+        {/* Universal Horizontal Navigation Track: Left ⇄ Right ("Aller de gauche à droite") */}
+        <div className="border-t border-slate-200 bg-slate-50/95 backdrop-blur-md px-2 sm:px-4 py-2 flex items-center gap-1.5 shadow-2xs">
           <button
             type="button"
-            onClick={() => setActiveTab('dashboard')}
-            className={`px-2.5 py-1 rounded whitespace-nowrap ${
-              activeTab === 'dashboard' ? 'bg-white text-amber-700 shadow-xs font-bold' : ''
-            }`}
+            onClick={handleScrollNavLeft}
+            className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition shadow-2xs shrink-0 cursor-pointer"
+            title="Faire défiler la barre vers la gauche"
           >
-            Tableau de Bord
+            <ChevronLeft className="w-4 h-4" />
           </button>
+
+          <div
+            ref={navTrackRef}
+            className="flex-1 flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar scroll-smooth py-0.5"
+          >
+            {NAVIGATION_TABS.map((tab, idx) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  data-tab-id={tab.id}
+                  onClick={() => handleTabSelect(tab.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap flex items-center gap-2 transition-all cursor-pointer shrink-0 ${
+                    isActive
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/80'
+                  }`}
+                  title={`${tab.label} : ${tab.description}`}
+                >
+                  <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-amber-600'}`} />
+                  <span>{tab.label}</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                      isActive ? 'bg-amber-700 text-amber-100' : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {idx + 1}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
           <button
             type="button"
-            onClick={() => setActiveTab('inventory')}
-            className={`px-2.5 py-1 rounded whitespace-nowrap ${
-              activeTab === 'inventory' || activeTab === 'stocks' ? 'bg-white text-amber-700 shadow-xs font-bold' : ''
-            }`}
+            onClick={handleScrollNavRight}
+            className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition shadow-2xs shrink-0 cursor-pointer"
+            title="Faire défiler la barre vers la droite"
           >
-            Inventaire
+            <ChevronRight className="w-4 h-4" />
           </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('customers')}
-            className={`px-2.5 py-1 rounded whitespace-nowrap ${
-              activeTab === 'customers' ? 'bg-white text-amber-700 shadow-xs font-bold' : ''
-            }`}
-          >
-            Clients
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('sales')}
-            className={`px-2.5 py-1 rounded whitespace-nowrap ${
-              activeTab === 'sales' ? 'bg-white text-amber-700 shadow-xs font-bold' : ''
-            }`}
-          >
-            Ventes
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('invoices')}
-            className={`px-2.5 py-1 rounded whitespace-nowrap ${
-              activeTab === 'invoices' ? 'bg-white text-amber-700 shadow-xs font-bold' : ''
-            }`}
-          >
-            Factures
-          </button>
-          {isAdmin ? (
-            <>
-              <button
-                type="button"
-                onClick={() => setActiveTab('exchange')}
-                className={`px-2.5 py-1 rounded whitespace-nowrap ${
-                  activeTab === 'exchange' ? 'bg-white text-amber-700 shadow-xs font-bold' : ''
-                }`}
-              >
-                Change (USD/DOP)
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('reports')}
-                className={`px-2.5 py-1 rounded whitespace-nowrap ${
-                  activeTab === 'reports' || activeTab === 'profitability' ? 'bg-white text-amber-700 shadow-xs font-bold' : ''
-                }`}
-              >
-                Rapports
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('users')}
-                className={`px-2.5 py-1 rounded whitespace-nowrap ${
-                  activeTab === 'users' ? 'bg-white text-amber-700 shadow-xs font-bold' : ''
-                }`}
-              >
-                Utilisateurs
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('settings')}
-                className={`px-2.5 py-1 rounded whitespace-nowrap ${
-                  activeTab === 'settings' ? 'bg-white text-amber-700 shadow-xs font-bold' : ''
-                }`}
-              >
-                Paramètres
-              </button>
-            </>
-          ) : (
-            <span className="px-2 py-1 text-[11px] text-slate-400 flex items-center gap-1 whitespace-nowrap font-medium">
-              <Lock className="w-3 h-3 text-amber-600" />
-              <span>Admin Restreint</span>
-            </span>
-          )}
         </div>
       </header>
 
-      {/* Main Content Workspace */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Main Content Workspace (Single Page, Fluid Navigation) */}
+      <main
+        className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         <React.Suspense fallback={<ViewLoadingFallback />}>
-          {activeTab === 'dashboard' && (
-            <OverviewDashboard
-              products={products}
-              sellers={sellers}
-              sales={sales}
-              onOpenNewSale={() => {
-                setSelectedSellerForSale(currentUser?.id || undefined);
-                setSelectedCustomerForSale(null);
-                setIsNewSaleOpen(true);
-              }}
-              onNavigateToStocks={() => setActiveTab('inventory')}
-              onNavigateToSellers={() => setActiveTab(isAdmin ? 'users' : 'dashboard')}
-              onNavigateToSales={() => setActiveTab('sales')}
-              onNavigateToInvoices={() => setActiveTab('invoices')}
-              onNavigateToExchange={() => setActiveTab(isAdmin ? 'exchange' : 'dashboard')}
-              exchangeRates={exchangeRates}
-              onRestock={handleRestock}
-              onPrintSale={setSaleToPrint}
-              currentUser={currentUser}
-              onOpenLoginModal={() => setIsLoginModalOpen(true)}
-              isAdmin={isAdmin}
-            />
-          )}
+          {viewMode === 'tabs' ? (
+            /* Mode 1: Navigation Onglets Fluides (Gauche ⇄ Droite avec Swipe & Animation) */
+            <div
+              key={activeTab}
+              className={`space-y-6 ${
+                slideDirection === 'right' ? 'animate-slide-right' : 'animate-slide-left'
+              }`}
+            >
+              {activeTab === 'dashboard' && (
+                <OverviewDashboard
+                  products={products}
+                  sellers={sellers}
+                  sales={sales}
+                  onOpenNewSale={() => {
+                    setSelectedSellerForSale(currentUser?.id || undefined);
+                    setSelectedCustomerForSale(null);
+                    setIsNewSaleOpen(true);
+                  }}
+                  onNavigateToStocks={() => handleTabSelect('inventory')}
+                  onNavigateToSellers={() => handleTabSelect('users')}
+                  onNavigateToSales={() => handleTabSelect('sales')}
+                  onNavigateToInvoices={() => handleTabSelect('invoices')}
+                  onNavigateToExchange={() => handleTabSelect('exchange')}
+                  exchangeRates={exchangeRates}
+                  onRestock={handleRestock}
+                  onPrintSale={setSaleToPrint}
+                  currentUser={currentUser}
+                  onOpenLoginModal={() => setIsLoginModalOpen(true)}
+                  isAdmin={isAdmin}
+                />
+              )}
 
-          {(activeTab === 'inventory' || activeTab === 'stocks') && (
-            <StockManagementView
-              products={products}
-              movements={movements}
-              onUpdateProduct={handleUpdateProduct}
-              onAddProduct={handleAddProduct}
-              onRestock={handleRestock}
-              onDeleteProduct={handleDeleteProduct}
-              isAdmin={isAdmin}
-            />
-          )}
+              {(activeTab === 'inventory' || activeTab === 'stocks') && (
+                <StockManagementView
+                  products={products}
+                  movements={movements}
+                  onUpdateProduct={handleUpdateProduct}
+                  onAddProduct={handleAddProduct}
+                  onRestock={handleRestock}
+                  onDeleteProduct={handleDeleteProduct}
+                  isAdmin={isAdmin}
+                />
+              )}
 
-          {activeTab === 'customers' && (
-            <CustomersManagementView
-              customers={customers}
-              onAddCustomer={handleAddCustomer}
-              onUpdateCustomer={handleUpdateCustomer}
-              onStartSaleForCustomer={handleStartSaleForCustomer}
-            />
-          )}
+              {activeTab === 'customers' && (
+                <CustomersManagementView
+                  customers={customers}
+                  onAddCustomer={handleAddCustomer}
+                  onUpdateCustomer={handleUpdateCustomer}
+                  onStartSaleForCustomer={handleStartSaleForCustomer}
+                />
+              )}
 
-          {activeTab === 'sales' && (
-            <SalesHistoryView
-              sales={sales}
-              sellers={sellers}
-              products={products}
-              customers={customers}
-              onCompleteSale={handleCompleteSale}
-              onOpenNewSale={() => {
-                setSelectedSellerForSale(currentUser?.id || undefined);
-                setSelectedCustomerForSale(null);
-                setIsNewSaleOpen(true);
-              }}
-              onPrintSale={setSaleToPrint}
-              defaultTaxRate={settings.defaultTaxRate}
-            />
-          )}
+              {activeTab === 'sales' && (
+                <SalesHistoryView
+                  sales={sales}
+                  sellers={sellers}
+                  products={products}
+                  customers={customers}
+                  onCompleteSale={handleCompleteSale}
+                  onOpenNewSale={() => {
+                    setSelectedSellerForSale(currentUser?.id || undefined);
+                    setSelectedCustomerForSale(null);
+                    setIsNewSaleOpen(true);
+                  }}
+                  onPrintSale={setSaleToPrint}
+                  defaultTaxRate={settings.defaultTaxRate}
+                />
+              )}
 
-          {activeTab === 'invoices' && (
-            <InvoicesManagementView
-              sales={sales}
-              sellers={sellers}
-              products={products}
-              customers={customers}
-              settings={settings}
-              exchangeRates={exchangeRates}
-              onUpdateSaleStatus={handleUpdateSaleStatus}
-              onOpenNewSale={() => {
-                setSelectedSellerForSale(currentUser?.id || undefined);
-                setSelectedCustomerForSale(null);
-                setIsNewSaleOpen(true);
-              }}
-              onPrintSale={setSaleToPrint}
-            />
-          )}
+              {activeTab === 'invoices' && (
+                <InvoicesManagementView
+                  sales={sales}
+                  sellers={sellers}
+                  products={products}
+                  customers={customers}
+                  settings={settings}
+                  exchangeRates={exchangeRates}
+                  onUpdateSaleStatus={handleUpdateSaleStatus}
+                  onOpenNewSale={() => {
+                    setSelectedSellerForSale(currentUser?.id || undefined);
+                    setSelectedCustomerForSale(null);
+                    setIsNewSaleOpen(true);
+                  }}
+                  onPrintSale={setSaleToPrint}
+                />
+              )}
 
-          {activeTab === 'exchange' && (
-            isAdmin ? (
-              <CurrencyExchangeView
-                rates={exchangeRates}
-                transactions={exchangeTransactions}
-                sellers={sellers}
-                onUpdateRates={handleUpdateExchangeRates}
-                onAddTransaction={handleAddExchangeTransaction}
-                onDeleteTransaction={handleDeleteExchangeTransaction}
-              />
-            ) : (
-              <AccessDeniedView
-                featureName="Module de Change & Taux de Devises (USD / DOP)"
-                onBackToSafety={() => setActiveTab('dashboard')}
-                currentUser={currentUser}
-                onOpenLoginModal={() => setIsLoginModalOpen(true)}
-              />
-            )
-          )}
+              {activeTab === 'exchange' && (
+                <CurrencyExchangeView
+                  rates={exchangeRates}
+                  transactions={exchangeTransactions}
+                  sellers={sellers}
+                  onUpdateRates={handleUpdateExchangeRates}
+                  onAddTransaction={handleAddExchangeTransaction}
+                  onDeleteTransaction={handleDeleteExchangeTransaction}
+                />
+              )}
 
-          {(activeTab === 'reports' || activeTab === 'profitability') && (
-            isAdmin ? (
-              <FinancialReportsView
-                sales={sales}
-                products={products}
-                sellers={sellers}
-              />
-            ) : (
-              <AccessDeniedView
-                featureName="Rapports Financiers & Rentabilité Globale"
-                onBackToSafety={() => setActiveTab('dashboard')}
-                currentUser={currentUser}
-                onOpenLoginModal={() => setIsLoginModalOpen(true)}
-              />
-            )
-          )}
+              {(activeTab === 'reports' || activeTab === 'profitability') && (
+                <FinancialReportsView
+                  sales={sales}
+                  products={products}
+                  sellers={sellers}
+                />
+              )}
 
-          {(activeTab === 'users' || activeTab === 'sellers') && (
-            isAdmin ? (
-              <UsersManagementView
-                sellers={sellers}
-                sales={sales}
-                onAddSeller={handleAddSeller}
-                onUpdateSeller={handleUpdateSeller}
-                onDeleteSeller={handleDeleteSeller}
-                onOpenNewSaleForSeller={handleOpenSaleForSeller}
-                currentUser={currentUser}
-                onSelectCurrentUser={(u) => handleLoginSuccess(u)}
-                onOpenLoginModal={() => setIsLoginModalOpen(true)}
-                isAdmin={isAdmin}
-              />
-            ) : (
-              <AccessDeniedView
-                featureName="Gestion des Utilisateurs, Rôles & Permissions"
-                onBackToSafety={() => setActiveTab('dashboard')}
-                currentUser={currentUser}
-                onOpenLoginModal={() => setIsLoginModalOpen(true)}
-              />
-            )
-          )}
+              {(activeTab === 'users' || activeTab === 'sellers') && (
+                <UsersManagementView
+                  sellers={sellers}
+                  sales={sales}
+                  onAddSeller={handleAddSeller}
+                  onUpdateSeller={handleUpdateSeller}
+                  onDeleteSeller={handleDeleteSeller}
+                  onOpenNewSaleForSeller={handleOpenSaleForSeller}
+                  currentUser={currentUser}
+                  onSelectCurrentUser={(u) => handleLoginSuccess(u)}
+                  onOpenLoginModal={() => setIsLoginModalOpen(true)}
+                  isAdmin={isAdmin}
+                />
+              )}
 
-          {activeTab === 'settings' && (
-            isAdmin ? (
-              <SettingsManagementView
-                settings={settings}
-                sellers={sellers}
-                onSaveSettings={handleSaveSettings}
-                onResetAllData={handleResetAllData}
-                onOpenMobileGuide={() => setIsMobileGuideOpen(true)}
-                onOpenCloudSync={() => setIsSyncCenterOpen(true)}
-              />
-            ) : (
-              <AccessDeniedView
-                featureName="Paramètres de l'Entreprise & Facturation"
-                onBackToSafety={() => setActiveTab('dashboard')}
-                currentUser={currentUser}
-                onOpenLoginModal={() => setIsLoginModalOpen(true)}
-              />
-            )
+              {activeTab === 'settings' && (
+                <SettingsManagementView
+                  settings={settings}
+                  sellers={sellers}
+                  onSaveSettings={handleSaveSettings}
+                  onResetAllData={handleResetAllData}
+                  onOpenMobileGuide={() => setIsMobileGuideOpen(true)}
+                  onOpenCloudSync={() => setIsSyncCenterOpen(true)}
+                />
+              )}
+
+              {/* Bottom Horizontal Stepper: Left ⇄ Right Navigation */}
+              <div className="pt-6 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <button
+                  type="button"
+                  onClick={handlePrevTab}
+                  className="px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold flex items-center gap-2 transition shadow-xs cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4 text-amber-600" />
+                  <span>
+                    Précédent :{' '}
+                    {
+                      NAVIGATION_TABS[
+                        (NAVIGATION_TABS.findIndex((t) => t.id === activeTab) - 1 + NAVIGATION_TABS.length) %
+                          NAVIGATION_TABS.length
+                      ].label
+                    }
+                  </span>
+                </button>
+
+                {/* Progress Dots Indicator */}
+                <div className="flex items-center gap-1.5">
+                  {NAVIGATION_TABS.map((t, idx) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => handleTabSelect(t.id)}
+                      className={`h-2 rounded-full transition-all cursor-pointer ${
+                        activeTab === t.id ? 'w-6 bg-amber-600' : 'w-2 bg-slate-300 hover:bg-slate-400'
+                      }`}
+                      title={`${idx + 1}. ${t.label}`}
+                    />
+                  ))}
+                  <span className="text-[11px] text-slate-500 font-mono ml-2">
+                    {NAVIGATION_TABS.findIndex((t) => t.id === activeTab) + 1} / {NAVIGATION_TABS.length}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleNextTab}
+                  className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold flex items-center gap-2 transition shadow-xs cursor-pointer"
+                >
+                  <span>
+                    Suivant :{' '}
+                    {
+                      NAVIGATION_TABS[
+                        (NAVIGATION_TABS.findIndex((t) => t.id === activeTab) + 1) % NAVIGATION_TABS.length
+                      ].label
+                    }
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-amber-200" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Mode 2: Vue Continue 1 Seule Page (Monter ↕ Descendre de façon fluide) */
+            <div className="space-y-16">
+              {/* Section 1: Dashboard */}
+              <section id="section-dashboard" className="scroll-mt-32 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
+                      1
+                    </span>
+                    <div>
+                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <LayoutDashboard className="w-5 h-5 text-amber-600" />
+                        <span>Tableau de Bord Global & Indicateurs Clés</span>
+                      </h2>
+                      <p className="text-xs text-slate-500">Chiffre d'affaires, stocks critiques et performances</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={scrollToTop}
+                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                    <span>Haut ↑</span>
+                  </button>
+                </div>
+                <OverviewDashboard
+                  products={products}
+                  sellers={sellers}
+                  sales={sales}
+                  onOpenNewSale={() => {
+                    setSelectedSellerForSale(currentUser?.id || undefined);
+                    setSelectedCustomerForSale(null);
+                    setIsNewSaleOpen(true);
+                  }}
+                  onNavigateToStocks={() => handleTabSelect('inventory')}
+                  onNavigateToSellers={() => handleTabSelect('users')}
+                  onNavigateToSales={() => handleTabSelect('sales')}
+                  onNavigateToInvoices={() => handleTabSelect('invoices')}
+                  onNavigateToExchange={() => handleTabSelect('exchange')}
+                  exchangeRates={exchangeRates}
+                  onRestock={handleRestock}
+                  onPrintSale={setSaleToPrint}
+                  currentUser={currentUser}
+                  onOpenLoginModal={() => setIsLoginModalOpen(true)}
+                  isAdmin={isAdmin}
+                />
+              </section>
+
+              {/* Section 2: Inventaire Boissons */}
+              <section id="section-inventory" className="scroll-mt-32 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
+                      2
+                    </span>
+                    <div>
+                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <Package className="w-5 h-5 text-amber-600" />
+                        <span>Inventaire des Boissons, Fûts & Casiers</span>
+                      </h2>
+                      <p className="text-xs text-slate-500">Gestion des stocks en temps réel et réapprovisionnements</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={scrollToTop}
+                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                    <span>Haut ↑</span>
+                  </button>
+                </div>
+                <StockManagementView
+                  products={products}
+                  movements={movements}
+                  onUpdateProduct={handleUpdateProduct}
+                  onAddProduct={handleAddProduct}
+                  onRestock={handleRestock}
+                  onDeleteProduct={handleDeleteProduct}
+                  isAdmin={isAdmin}
+                />
+              </section>
+
+              {/* Section 3: Ventes */}
+              <section id="section-sales" className="scroll-mt-32 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
+                      3
+                    </span>
+                    <div>
+                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <ShoppingBag className="w-5 h-5 text-amber-600" />
+                        <span>Historique & Commandes de Ventes</span>
+                      </h2>
+                      <p className="text-xs text-slate-500">Ventes directes, livraisons et tickets de caisse</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={scrollToTop}
+                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                    <span>Haut ↑</span>
+                  </button>
+                </div>
+                <SalesHistoryView
+                  sales={sales}
+                  sellers={sellers}
+                  products={products}
+                  customers={customers}
+                  onCompleteSale={handleCompleteSale}
+                  onOpenNewSale={() => {
+                    setSelectedSellerForSale(currentUser?.id || undefined);
+                    setSelectedCustomerForSale(null);
+                    setIsNewSaleOpen(true);
+                  }}
+                  onPrintSale={setSaleToPrint}
+                  defaultTaxRate={settings.defaultTaxRate}
+                />
+              </section>
+
+              {/* Section 4: Factures */}
+              <section id="section-invoices" className="scroll-mt-32 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
+                      4
+                    </span>
+                    <div>
+                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-amber-600" />
+                        <span>Facturation, Créances & Règlements Clients</span>
+                      </h2>
+                      <p className="text-xs text-slate-500">Statuts de paiement, encaissements et suivi des échéances</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={scrollToTop}
+                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                    <span>Haut ↑</span>
+                  </button>
+                </div>
+                <InvoicesManagementView
+                  sales={sales}
+                  sellers={sellers}
+                  products={products}
+                  customers={customers}
+                  settings={settings}
+                  exchangeRates={exchangeRates}
+                  onUpdateSaleStatus={handleUpdateSaleStatus}
+                  onOpenNewSale={() => {
+                    setSelectedSellerForSale(currentUser?.id || undefined);
+                    setSelectedCustomerForSale(null);
+                    setIsNewSaleOpen(true);
+                  }}
+                  onPrintSale={setSaleToPrint}
+                />
+              </section>
+
+              {/* Section 5: Clients & Consignes */}
+              <section id="section-customers" className="scroll-mt-32 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
+                      5
+                    </span>
+                    <div>
+                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <Users className="w-5 h-5 text-amber-600" />
+                        <span>Répertoire Clients & Suivi des Consignes</span>
+                      </h2>
+                      <p className="text-xs text-slate-500">Fûts inox en circulation, coordonnées et encours autorisés</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={scrollToTop}
+                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                    <span>Haut ↑</span>
+                  </button>
+                </div>
+                <CustomersManagementView
+                  customers={customers}
+                  onAddCustomer={handleAddCustomer}
+                  onUpdateCustomer={handleUpdateCustomer}
+                  onStartSaleForCustomer={handleStartSaleForCustomer}
+                />
+              </section>
+
+              {/* Section 6: Change Devises */}
+              <section id="section-exchange" className="scroll-mt-32 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
+                      6
+                    </span>
+                    <div>
+                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <ArrowLeftRight className="w-5 h-5 text-amber-600" />
+                        <span>Bureau de Change Multi-Devises (USD / DOP en Gourdes)</span>
+                      </h2>
+                      <p className="text-xs text-slate-500">Taux d'achat et de vente, conversion automatique en caisse</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={scrollToTop}
+                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                    <span>Haut ↑</span>
+                  </button>
+                </div>
+                <CurrencyExchangeView
+                  rates={exchangeRates}
+                  transactions={exchangeTransactions}
+                  sellers={sellers}
+                  onUpdateRates={handleUpdateExchangeRates}
+                  onAddTransaction={handleAddExchangeTransaction}
+                  onDeleteTransaction={handleDeleteExchangeTransaction}
+                />
+              </section>
+
+              {/* Section 7: Rapports Financiers */}
+              <section id="section-reports" className="scroll-mt-32 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
+                      7
+                    </span>
+                    <div>
+                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <FileSpreadsheet className="w-5 h-5 text-amber-600" />
+                        <span>Rapports Financiers & Rentabilité Globale</span>
+                      </h2>
+                      <p className="text-xs text-slate-500">Marges brutes, statistiques et analyse de rentabilité</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={scrollToTop}
+                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                    <span>Haut ↑</span>
+                  </button>
+                </div>
+                <FinancialReportsView
+                  sales={sales}
+                  products={products}
+                  sellers={sellers}
+                />
+              </section>
+
+              {/* Section 8: Utilisateurs & Équipe */}
+              <section id="section-users" className="scroll-mt-32 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
+                      8
+                    </span>
+                    <div>
+                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <UserCog className="w-5 h-5 text-amber-600" />
+                        <span>Utilisateurs, Vendeurs & Objectifs Commerciaux</span>
+                      </h2>
+                      <p className="text-xs text-slate-500">Gestion de l'équipe commerciale et commissions</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={scrollToTop}
+                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                    <span>Haut ↑</span>
+                  </button>
+                </div>
+                <UsersManagementView
+                  sellers={sellers}
+                  sales={sales}
+                  onAddSeller={handleAddSeller}
+                  onUpdateSeller={handleUpdateSeller}
+                  onDeleteSeller={handleDeleteSeller}
+                  onOpenNewSaleForSeller={handleOpenSaleForSeller}
+                  currentUser={currentUser}
+                  onSelectCurrentUser={(u) => handleLoginSuccess(u)}
+                  onOpenLoginModal={() => setIsLoginModalOpen(true)}
+                  isAdmin={isAdmin}
+                />
+              </section>
+
+              {/* Section 9: Paramètres */}
+              <section id="section-settings" className="scroll-mt-32 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
+                      9
+                    </span>
+                    <div>
+                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <Settings className="w-5 h-5 text-amber-600" />
+                        <span>Paramètres de l'Entreprise, Facturation & Synchronisation</span>
+                      </h2>
+                      <p className="text-xs text-slate-500">Coordonnées, consignes, taxes et protection des données</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={scrollToTop}
+                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5" />
+                    <span>Haut ↑</span>
+                  </button>
+                </div>
+                <SettingsManagementView
+                  settings={settings}
+                  sellers={sellers}
+                  onSaveSettings={handleSaveSettings}
+                  onResetAllData={handleResetAllData}
+                  onOpenMobileGuide={() => setIsMobileGuideOpen(true)}
+                  onOpenCloudSync={() => setIsSyncCenterOpen(true)}
+                />
+              </section>
+            </div>
           )}
         </React.Suspense>
       </main>
+
+      {/* Floating Quick Navigation & Scroll Bar: Monter ↕ Descendre et Gauche ⇄ Droite */}
+      <div className="fixed bottom-5 right-5 z-40 flex items-center gap-1 bg-slate-900/90 hover:bg-slate-900 text-white p-1.5 rounded-2xl shadow-xl backdrop-blur-md border border-slate-700/60 transition-transform">
+        <button
+          type="button"
+          onClick={handlePrevTab}
+          className="p-2 hover:bg-white/15 rounded-xl transition text-slate-300 hover:text-white cursor-pointer"
+          title="Onglet précédent (Gauche ←)"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={scrollToTop}
+          className="px-2.5 py-1.5 hover:bg-white/15 rounded-xl transition text-slate-300 hover:text-white flex items-center gap-1 text-xs font-semibold cursor-pointer"
+          title="Monter en haut de page (Fluide ↑)"
+        >
+          <ArrowUp className="w-4 h-4 text-amber-400" />
+          <span className="hidden sm:inline">Haut</span>
+        </button>
+        <button
+          type="button"
+          onClick={scrollToBottom}
+          className="px-2.5 py-1.5 hover:bg-white/15 rounded-xl transition text-slate-300 hover:text-white flex items-center gap-1 text-xs font-semibold cursor-pointer"
+          title="Descendre en bas de page (Fluide ↓)"
+        >
+          <ArrowDown className="w-4 h-4 text-amber-400" />
+          <span className="hidden sm:inline">Bas</span>
+        </button>
+        <button
+          type="button"
+          onClick={handleNextTab}
+          className="p-2 hover:bg-white/15 rounded-xl transition text-slate-300 hover:text-white cursor-pointer"
+          title="Onglet suivant (Droite →)"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
 
       {/* Lazy Modals loaded on-demand */}
       <React.Suspense fallback={null}>

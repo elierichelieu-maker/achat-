@@ -22,27 +22,20 @@ interface ShareAppModalProps {
 }
 
 export const OFFICIAL_APP_URL = 'https://gestion-de-ventanakayit.netlify.app';
-export const OFFICIAL_LOGIN_URL = 'https://gestion-de-ventanakayit.netlify.app/?auth=login';
 
 export const ShareAppModal: React.FC<ShareAppModalProps> = ({
   isOpen,
   onClose,
 }) => {
   const [copiedOfficial, setCopiedOfficial] = useState(false);
-  const [copiedLogin, setCopiedLogin] = useState(false);
   const [sharedNative, setSharedNative] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleCopy = (url: string, isLogin: boolean) => {
+  const handleCopy = (url: string) => {
     navigator.clipboard.writeText(url);
-    if (isLogin) {
-      setCopiedLogin(true);
-      setTimeout(() => setCopiedLogin(false), 2500);
-    } else {
-      setCopiedOfficial(true);
-      setTimeout(() => setCopiedOfficial(false), 2500);
-    }
+    setCopiedOfficial(true);
+    setTimeout(() => setCopiedOfficial(false), 2500);
   };
 
   const handleNativeShare = async () => {
@@ -50,8 +43,8 @@ export const ShareAppModal: React.FC<ShareAppModalProps> = ({
       try {
         await navigator.share({
           title: 'DistriBoissons & Vins - Accès Unique',
-          text: 'Accédez à votre espace officiel DistriBoissons Pro (Distribution Boissons & Caisse) :',
-          url: OFFICIAL_LOGIN_URL,
+          text: 'Accédez directement à votre espace de gestion DistriBoissons Pro (Distribution Boissons & Caisse) :',
+          url: OFFICIAL_APP_URL,
         });
         setSharedNative(true);
         setTimeout(() => setSharedNative(false), 2500);
@@ -59,9 +52,7 @@ export const ShareAppModal: React.FC<ShareAppModalProps> = ({
         // user cancelled or failed, ignore
       }
     } else {
-      navigator.clipboard.writeText(OFFICIAL_LOGIN_URL);
-      setCopiedLogin(true);
-      setTimeout(() => setCopiedLogin(false), 2500);
+      handleCopy(OFFICIAL_APP_URL);
     }
   };
 
@@ -126,7 +117,7 @@ export const ShareAppModal: React.FC<ShareAppModalProps> = ({
                 />
                 <button
                   type="button"
-                  onClick={() => handleCopy(OFFICIAL_APP_URL, false)}
+                  onClick={() => handleCopy(OFFICIAL_APP_URL)}
                   className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
                     copiedOfficial
                       ? 'bg-emerald-700 text-white'
@@ -136,28 +127,6 @@ export const ShareAppModal: React.FC<ShareAppModalProps> = ({
                   {copiedOfficial ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copiedOfficial ? 'Copié !' : 'Copier'}</span>
                 </button>
-              </div>
-
-              {/* Login link variant */}
-              <div className="pt-1">
-                <span className="text-[11px] font-semibold text-slate-600 block mb-1">
-                  Variante accès direct à la page de connexion :
-                </span>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={OFFICIAL_LOGIN_URL}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-slate-600 select-all focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(OFFICIAL_LOGIN_URL, true)}
-                    className="px-2.5 py-1.5 text-[11px] font-semibold bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg shrink-0 cursor-pointer"
-                  >
-                    {copiedLogin ? 'Copié !' : 'Copier'}
-                  </button>
-                </div>
               </div>
             </div>
 
@@ -173,7 +142,7 @@ export const ShareAppModal: React.FC<ShareAppModalProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => handleWhatsApp(OFFICIAL_LOGIN_URL)}
+                onClick={() => handleWhatsApp(OFFICIAL_APP_URL)}
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg cursor-pointer transition shadow-2xs"
               >
                 <Send className="w-3.5 h-3.5" />
