@@ -454,6 +454,28 @@ export default function App() {
     }
   }, [sellers]);
 
+  // Quick QR Code Scan Verification: If URL contains ?facture=... or ?verify=...
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const invoiceQuery = params.get('facture') || params.get('verify') || params.get('invoice');
+      if (invoiceQuery && sales.length > 0) {
+        const targetQuery = decodeURIComponent(invoiceQuery).trim().toLowerCase();
+        const match = sales.find(
+          (s) =>
+            s.invoiceNumber.toLowerCase() === targetQuery ||
+            s.id.toLowerCase() === targetQuery
+        );
+        if (match) {
+          setSaleToPrint(match);
+        }
+      }
+    } catch (e) {
+      console.warn('Erreur vérification QR code facture:', e);
+    }
+  }, [sales]);
+
   // User Login Success Handler
   const handleLoginSuccess = (user: Seller) => {
     setCurrentUser(user);

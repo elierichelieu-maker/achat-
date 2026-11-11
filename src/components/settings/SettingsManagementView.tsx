@@ -16,9 +16,17 @@ import {
   Smartphone,
   Cloud,
   Lock,
+  Printer,
+  Receipt,
+  FileText,
+  Image as ImageIcon,
+  Upload,
+  Trash2,
+  Eye,
 } from 'lucide-react';
 import { formatHTG } from '../../utils/formatters';
 import { MobileDeploymentGuideModal } from '../mobile/MobileDeploymentGuideModal';
+import { WaterBottleLogo } from '../common/WaterBottleLogo';
 
 interface SettingsManagementViewProps {
   settings: AppSettings;
@@ -53,6 +61,25 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
   const updateField = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setIsDirty(true);
     setFormData((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert("L'image sélectionnée est trop volumineuse (max 2 Mo). Veuillez choisir une image plus légère.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      if (base64) {
+        updateField('companyLogo', base64);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -206,6 +233,152 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
           </div>
         </div>
 
+        {/* Company Logo for 80mm POS Thermal Receipts & Invoices */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <span className="p-2 bg-amber-50 text-amber-700 rounded-lg">
+                <ImageIcon className="w-4 h-4" />
+              </span>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Logo de l'Entreprise sur Ticket Thermique 80mm
+                </h3>
+                <p className="text-xs text-slate-500">
+                  En-tête officiel imprimé au sommet de chaque ticket 80mm et facture A4
+                </p>
+              </div>
+            </div>
+            {formData.companyLogo ? (
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1 w-fit">
+                <Check className="w-3 h-3 text-emerald-600" />
+                <span>Logo personnalisé configuré</span>
+              </span>
+            ) : (
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200 flex items-center gap-1 w-fit">
+                <span>Logo standard par défaut</span>
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            {/* Left 2 Cols: Upload and controls */}
+            <div className="lg:col-span-2 space-y-4 text-xs">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  1. Importer votre logo depuis cet appareil
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="px-3.5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg cursor-pointer transition-colors flex items-center gap-2 shadow-xs">
+                    <Upload className="w-4 h-4" />
+                    <span>Choisir une image (PNG, JPG, SVG)</span>
+                    <input
+                      type="file"
+                      accept="image/png, image/jpeg, image/jpg, image/svg+xml, image/webp"
+                      onChange={handleLogoFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  {formData.companyLogo && (
+                    <button
+                      type="button"
+                      onClick={() => updateField('companyLogo', '')}
+                      className="px-3 py-2.5 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 rounded-lg transition-colors flex items-center gap-1.5 font-medium cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Supprimer le logo</span>
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                  Conseil imprimante thermique 80mm : préférez un logo net et contrasté (idéalement sur fond blanc ou transparent).
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  2. Ou coller une URL d'image directe :
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://votre-domaine.com/logo-entreprise.png"
+                  value={formData.companyLogo || ''}
+                  onChange={(e) => updateField('companyLogo', e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-amber-500 font-mono text-[11px]"
+                />
+              </div>
+
+              {/* Toggle showLogoOnTicket */}
+              <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-slate-900 block text-xs">
+                    Activer l'impression du logo sur les tickets 80mm
+                  </span>
+                  <span className="text-slate-500 text-[11px]">
+                    Si décoché, seul le nom de l'entreprise sera imprimé en texte brut
+                  </span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.showLogoOnTicket !== false}
+                    onChange={(e) =>
+                      updateField('showLogoOnTicket', e.target.checked)
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                </label>
+              </div>
+            </div>
+
+            {/* Right: Live Preview on 80mm Ticket Paper */}
+            <div className="bg-slate-100/70 border border-slate-200 rounded-xl p-4 flex flex-col items-center justify-center text-center">
+              <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1">
+                <Eye className="w-3.5 h-3.5 text-slate-500" />
+                <span>Aperçu En-Tête Ticket 80mm</span>
+              </span>
+              <div className="w-full max-w-[210px] bg-white border-2 border-dashed border-slate-300 rounded-xl p-3.5 shadow-sm font-mono space-y-1.5 text-slate-900">
+                {formData.showLogoOnTicket !== false ? (
+                  formData.companyLogo ? (
+                    <div className="py-1">
+                      <img
+                        src={formData.companyLogo}
+                        alt="Logo entreprise"
+                        className="max-h-12 max-w-[130px] mx-auto object-contain"
+                      />
+                      <span className="text-[9px] text-emerald-700 font-sans font-medium block mt-1">✓ Votre logo personnalisé</span>
+                    </div>
+                  ) : (
+                    <div className="py-1">
+                      <div className="w-10 h-10 mx-auto rounded-xl bg-amber-600 text-white flex items-center justify-center mb-1 shadow-xs">
+                        <WaterBottleLogo className="w-6 h-6 text-white" />
+                      </div>
+                      <span className="text-[9px] text-slate-400 font-sans block">Logo bouteille par défaut</span>
+                    </div>
+                  )
+                ) : (
+                  <div className="py-2.5 text-[10px] text-slate-400 italic font-sans">
+                    (Logo désactivé sur le ticket)
+                  </div>
+                )}
+                <div className="text-[11px] font-black uppercase text-slate-900 border-t border-dashed border-slate-300 pt-1 leading-tight">
+                  {formData.companyName.toUpperCase()}
+                </div>
+                <div className="text-[8px] bg-slate-900 text-white px-1.5 py-0.5 rounded-xs font-bold inline-block uppercase tracking-wider">
+                  FACTURE D'ENCAISSEMENT 80MM
+                </div>
+                <div className="text-[9px] text-slate-500">
+                  {formData.contactPhone}
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-2 leading-tight">
+                Rendu immédiat tel qu'imprimé sur vos bobines de papier 80mm
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* Consignments & Fiscal Rules */}
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
           <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
@@ -343,6 +516,87 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
               />
               <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
             </label>
+          </div>
+        </div>
+
+        {/* Invoice Format Preference: 80mm POS Thermal Receipt vs A4 */}
+        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+            <span className="p-2 bg-amber-50 text-amber-700 rounded-lg">
+              <Printer className="w-4 h-4" />
+            </span>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">
+                Format d'Impression des Factures & Reçus de Caisse
+              </h3>
+              <p className="text-xs text-slate-500">
+                Format pré-sélectionné lors de l'ouverture et de l'impression des tickets de caisse
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <button
+              type="button"
+              onClick={() => updateField('defaultInvoiceFormat', 'ticket')}
+              className={`p-4 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                (formData.defaultInvoiceFormat || 'ticket') === 'ticket'
+                  ? 'bg-amber-50/70 border-2 border-amber-500 shadow-xs'
+                  : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700'
+              }`}
+            >
+              <div
+                className={`p-2.5 rounded-lg shrink-0 ${
+                  (formData.defaultInvoiceFormat || 'ticket') === 'ticket'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'bg-white border border-slate-200 text-slate-600'
+                }`}
+              >
+                <Receipt className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-900">Format Ticket Thermique 80mm</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200 text-amber-950">
+                    Recommandé (80mm)
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  Idéal pour les imprimantes de caisse thermiques (Epson, Star, Sunmi, Xprinter 80mm). Compact, rapide et économique.
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => updateField('defaultInvoiceFormat', 'a4')}
+              className={`p-4 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                formData.defaultInvoiceFormat === 'a4'
+                  ? 'bg-amber-50/70 border-2 border-amber-500 shadow-xs'
+                  : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700'
+              }`}
+            >
+              <div
+                className={`p-2.5 rounded-lg shrink-0 ${
+                  formData.defaultInvoiceFormat === 'a4'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'bg-white border border-slate-200 text-slate-600'
+                }`}
+              >
+                <FileText className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-900">Facture Commerciale A4</span>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                    Bureautique
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  Facture pleine page format A4 (210×297mm) pour imprimantes standard papier libre laser ou jet d'encre.
+                </p>
+              </div>
+            </button>
           </div>
         </div>
 

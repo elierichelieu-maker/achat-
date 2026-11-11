@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sale, AppSettings } from '../../types';
 import { formatHTG } from '../../utils/formatters';
 import { WaterBottleLogo } from '../common/WaterBottleLogo';
@@ -18,12 +18,15 @@ import {
   FileDown,
   ExternalLink,
   Loader2,
+  Image as ImageIcon,
+  QrCode,
 } from 'lucide-react';
 import {
   executePrintOrDownload,
   downloadInvoicePDF,
   downloadPrintableHTML,
   shareInvoiceViaWhatsApp,
+  generateInvoiceQRCodeDataUrl,
 } from '../../utils/invoicePrinter';
 
 interface InvoiceReceiptModalProps {
@@ -37,14 +40,43 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
   settings,
   onClose,
 }) => {
-  const [printFormat, setPrintFormat] = useState<'a4' | 'ticket'>('a4');
+  // Defaults directly to Ticket 80mm ("un facture de 80mm je veux")
+  const [printFormat, setPrintFormat] = useState<'ticket' | 'a4'>(
+    settings?.defaultInvoiceFormat || 'ticket'
+  );
+  const [includeLogoOnTicket, setIncludeLogoOnTicket] = useState<boolean>(
+    settings?.showLogoOnTicket !== false
+  );
+  const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [feedbackNotice, setFeedbackNotice] = useState<{
     type: 'success' | 'info' | 'error';
     text: string;
   } | null>(null);
 
+  // Generate unique verification QR Code containing the invoice number
+  useEffect(() => {
+    let isMounted = true;
+    if (sale?.invoiceNumber) {
+      generateInvoiceQRCodeDataUrl(sale).then((url) => {
+        if (isMounted && url) {
+          setQrCodeUrl(url);
+        }
+      });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [sale?.invoiceNumber, sale?.id]);
+
   if (!sale) return null;
+
+  const effectiveSettings: AppSettings | undefined = settings
+    ? {
+        ...settings,
+        showLogoOnTicket: includeLogoOnTicket,
+      }
+    : undefined;
 
   const showNotice = (text: string, type: 'success' | 'info' | 'error' = 'success') => {
     setFeedbackNotice({ type, text });
@@ -56,7 +88,7 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
     setIsProcessing(true);
     setFeedbackNotice({ type: 'info', text: 'Préparation de l\'impression...' });
     try {
-      const res = await executePrintOrDownload(sale, settings, printFormat);
+      const res = await executePrintOrDownload(sale, effectiveSettings, printFormat, qrCodeUrl);
       if (res.methodUsed === 'pdf_download') {
         showNotice('Impression navigateur restreinte : la facture PDF a été téléchargée automatiquement sur votre appareil !', 'success');
       } else {
@@ -65,7 +97,7 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
     } catch (e) {
       console.error(e);
       // Fallback: download PDF directly
-      await downloadInvoicePDF(sale, settings, printFormat);
+      await downloadInvoicePDF(sale, effectiveSettings, printFormat);
       showNotice('La facture a été exportée en PDF sur votre appareil.', 'success');
     } finally {
       setIsProcessing(false);
@@ -76,16 +108,16 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
   const handleDownloadPDF = async () => {
     setIsProcessing(true);
     try {
-      const success = await downloadInvoicePDF(sale, settings, printFormat);
+      const success = await downloadInvoicePDF(sale, effectiveSettings, printFormat);
       if (success) {
         showNotice(`Fichier PDF (${printFormat === 'a4' ? 'Facture A4' : 'Ticket 80mm'}) téléchargé avec succès !`, 'success');
       } else {
-        downloadPrintableHTML(sale, settings, printFormat);
+        await downloadPrintableHTML(sale, effectiveSettings, printFormat, qrCodeUrl);
         showNotice('Document imprimable HTML téléchargé sur votre appareil.', 'info');
       }
     } catch (e) {
       console.error(e);
-      downloadPrintableHTML(sale, settings, printFormat);
+      await downloadPrintableHTML(sale, effectiveSettings, printFormat, qrCodeUrl);
       showNotice('Document téléchargé.', 'info');
     } finally {
       setIsProcessing(false);
@@ -151,23 +183,41 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
             <div className="bg-slate-800 p-0.5 rounded-lg border border-slate-700 flex text-xs">
               <button
                 type="button"
-                onClick={() => setPrintFormat('a4')}
-                className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
-                  printFormat === 'a4' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                Format A4
-              </button>
-              <button
-                type="button"
                 onClick={() => setPrintFormat('ticket')}
-                className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+                className={`px-3 py-1 rounded-md font-medium transition-colors flex items-center gap-1 ${
                   printFormat === 'ticket' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300 hover:text-white'
                 }`}
               >
-                Ticket 80mm
+                <Receipt className="w-3.5 h-3.5" />
+                <span>Ticket 80mm</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrintFormat('a4')}
+                className={`px-3 py-1 rounded-md font-medium transition-colors flex items-center gap-1 ${
+                  printFormat === 'a4' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Format A4</span>
               </button>
             </div>
+
+            {/* Quick Logo Toggle */}
+            <button
+              type="button"
+              onClick={() => setIncludeLogoOnTicket(!includeLogoOnTicket)}
+              className={`px-2.5 py-1 text-xs rounded-lg border font-medium transition-colors flex items-center gap-1.5 cursor-pointer ${
+                includeLogoOnTicket
+                  ? 'bg-amber-950/60 text-amber-300 border-amber-500/40 hover:bg-amber-900/60'
+                  : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+              }`}
+              title="Activer ou désactiver l'impression du logo sur le document"
+            >
+              <ImageIcon className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Logo :</span>
+              <span className="font-bold">{includeLogoOnTicket ? 'Inclus' : 'Masqué'}</span>
+            </button>
 
             <button
               type="button"
@@ -265,9 +315,17 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
               {/* Header: Company + Water Bottle Logo */}
               <div className="flex flex-col sm:flex-row items-start justify-between gap-4 border-b border-slate-200 pb-5">
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center shadow-xs ring-1 ring-amber-600/30 shrink-0">
-                    <WaterBottleLogo className="w-6 h-6 text-white" />
-                  </div>
+                  {settings?.companyLogo ? (
+                    <img
+                      src={settings.companyLogo}
+                      alt={companyName}
+                      className="max-h-14 max-w-[140px] object-contain rounded-lg p-0.5 border border-slate-200 bg-white shrink-0"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center shadow-xs ring-1 ring-amber-600/30 shrink-0">
+                      <WaterBottleLogo className="w-6 h-6 text-white" />
+                    </div>
+                  )}
                   <div>
                     <h1 className="text-lg font-black tracking-tight text-slate-900">
                       {companyName}
@@ -414,86 +472,149 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
           )}
 
           {/* ========================================================
-              FORMAT 2 : TICKET DE CAISSE THERMIQUE 80MM
+              FORMAT 2 : TICKET DE CAISSE THERMIQUE 80MM (RECOMMANDÉ)
               ======================================================== */}
           {printFormat === 'ticket' && (
-            <div className="printable-document bg-white w-full max-w-sm rounded-xl border border-slate-300 p-6 text-slate-900 shadow-sm font-mono space-y-4 text-xs">
+            <div className="printable-document printable-ticket-80mm bg-white w-full max-w-[340px] rounded-2xl border-2 border-slate-300 p-5 text-slate-900 shadow-md font-mono space-y-3 text-xs">
               
               {/* Receipt Header */}
-              <div className="text-center space-y-1 pb-3 border-b border-dashed border-slate-300">
-                <div className="w-8 h-8 mx-auto rounded-lg bg-amber-600 text-white flex items-center justify-center mb-1">
-                  <WaterBottleLogo className="w-5 h-5 text-white" />
+              <div className="text-center space-y-1 pb-3 border-b-2 border-dashed border-slate-400">
+                {includeLogoOnTicket && (
+                  settings?.companyLogo ? (
+                    <div className="py-1">
+                      <img
+                        src={settings.companyLogo}
+                        alt="Logo entreprise"
+                        className="max-h-14 max-w-[150px] mx-auto object-contain mb-1"
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-10 h-10 mx-auto rounded-xl bg-amber-600 text-white flex items-center justify-center mb-1 shadow-xs">
+                      <WaterBottleLogo className="w-6 h-6 text-white" />
+                    </div>
+                  )
+                )}
+                <h2 className="font-black text-sm tracking-tight text-slate-900">{companyName.toUpperCase()}</h2>
+                <div className="inline-block px-2 py-0.5 rounded-sm bg-slate-900 text-white text-[10px] font-bold uppercase tracking-wider">
+                  FACTURE D'ENCAISSEMENT 80MM
                 </div>
-                <h2 className="font-bold text-sm tracking-tight">{companyName}</h2>
-                <p className="text-[11px] text-slate-600">Distribution Boissons & Eaux</p>
+                <p className="text-[10px] text-slate-600 font-medium">Distribution Boissons Gazeuses & Vins</p>
                 <p className="text-[10px] text-slate-500">{companyAddress}</p>
-                <p className="text-[10px] text-slate-500">Tél : {contactPhone} | NIF: {companySiret}</p>
+                <p className="text-[10px] text-slate-700 font-semibold">Tél : {contactPhone} | NIF: {companySiret}</p>
               </div>
 
               {/* Ticket Meta */}
-              <div className="space-y-1 text-[11px] pb-3 border-b border-dashed border-slate-300">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Ticket N° :</span>
-                  <span className="font-bold">{sale.invoiceNumber}</span>
+              <div className="space-y-1 text-[11px] pb-3 border-b border-dashed border-slate-300 bg-slate-50/80 p-2.5 rounded-lg border border-slate-200">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 font-bold">FACTURE N° :</span>
+                  <span className="font-black text-amber-700 font-mono text-xs">{sale.invoiceNumber}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Date :</span>
-                  <span>{saleDateFormatted} {saleTimeFormatted}</span>
+                  <span className="text-slate-500">Date & Heure :</span>
+                  <span className="font-semibold">{saleDateFormatted} à {saleTimeFormatted}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Client :</span>
-                  <span className="font-semibold">{sale.customerName}</span>
+                  <span className="font-bold text-slate-900">{sale.customerName}</span>
                 </div>
                 {sale.customerCompany && (
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Société :</span>
-                    <span>{sale.customerCompany}</span>
+                    <span className="text-slate-500">Établissement :</span>
+                    <span className="font-semibold text-slate-800">{sale.customerCompany}</span>
                   </div>
                 )}
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Vendeur :</span>
-                  <span>{sale.sellerName}</span>
+                  <span className="text-slate-500">Vendeur / Caisse :</span>
+                  <span className="font-medium text-slate-800">{sale.sellerName}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Paiement :</span>
-                  <span className="font-bold capitalize">{sale.paymentMethod}</span>
+                <div className="flex justify-between items-center pt-1 border-t border-slate-200">
+                  <span className="text-slate-600 font-semibold">Paiement :</span>
+                  <span className="font-bold uppercase px-1.5 py-0.2 rounded bg-slate-200 text-slate-800 text-[10px]">
+                    {sale.paymentMethod}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 font-semibold">Statut :</span>
+                  <span className={`font-bold uppercase text-[10px] ${sale.status === 'completed' ? 'text-emerald-700' : 'text-amber-700'}`}>
+                    {sale.status === 'completed' ? '✓ ACQUITTÉE / PAYÉE' : 'EN ATTENTE'}
+                  </span>
                 </div>
               </div>
 
-              {/* Ticket Items */}
-              <div className="space-y-2 py-1">
+              {/* Ticket Items Header */}
+              <div className="space-y-1.5 py-1">
+                <div className="text-[10px] font-bold text-slate-600 uppercase tracking-wider flex justify-between pb-1 border-b border-slate-400">
+                  <span>DÉSIGNATION</span>
+                  <div className="flex gap-4">
+                    <span>QTÉ</span>
+                    <span>TOTAL</span>
+                  </div>
+                </div>
                 {sale.items.map((it, idx) => (
-                  <div key={idx} className="flex justify-between items-start text-xs">
-                    <div className="pr-2">
-                      <div className="font-semibold text-slate-900">{it.productName}</div>
-                      <div className="text-[11px] text-slate-500">
-                        {it.quantity} x {formatHTG(it.unitPrice)}
+                  <div key={idx} className="flex justify-between items-start text-xs border-b border-slate-100 pb-1">
+                    <div className="pr-2 flex-1">
+                      <div className="font-bold text-slate-900 leading-tight">{it.productName}</div>
+                      <div className="text-[11px] text-slate-500 tabular-nums">
+                        {it.quantity} × {formatHTG(it.unitPrice)}
                       </div>
                     </div>
-                    <div className="font-bold shrink-0">{formatHTG(it.totalPrice)}</div>
+                    <div className="font-bold shrink-0 text-right tabular-nums text-slate-900">
+                      {formatHTG(it.totalPrice)}
+                    </div>
                   </div>
                 ))}
               </div>
 
-              {/* Totals */}
-              <div className="pt-2 border-t border-dashed border-slate-300 space-y-1 text-xs">
-                <div className="flex justify-between">
-                  <span>Total HT :</span>
-                  <span>{formatHTG(sale.totalHT)}</span>
+              {/* Totals Section */}
+              <div className="pt-2 border-t-2 border-dashed border-slate-400 space-y-1 text-xs">
+                <div className="flex justify-between text-slate-600">
+                  <span>Total Brut HT :</span>
+                  <span className="tabular-nums font-semibold">{formatHTG(sale.totalHT)}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between text-slate-600">
                   <span>TVA {sale.taxRate > 0 ? `(${Math.round(sale.taxRate * 100)}%)` : '(0%)'} :</span>
-                  <span>{formatHTG(sale.totalHT * sale.taxRate)}</span>
+                  <span className="tabular-nums font-semibold">{formatHTG(sale.totalHT * sale.taxRate)}</span>
                 </div>
-                <div className="flex justify-between font-black text-sm pt-1 border-t border-slate-300">
-                  <span>TOTAL TTC :</span>
-                  <span>{formatHTG(sale.totalTTC)}</span>
+                <div className="flex justify-between items-center font-black text-sm pt-2 border-t-2 border-slate-900 text-slate-900">
+                  <span className="uppercase">TOTAL NET TTC :</span>
+                  <span className="text-base text-amber-700 tabular-nums font-black">{formatHTG(sale.totalTTC)}</span>
                 </div>
               </div>
 
-              <div className="text-center pt-3 border-t border-dashed border-slate-300 text-[10px] text-slate-500 space-y-0.5">
-                <p className="font-bold text-slate-700">*** MERCI DE VOTRE VISITE ***</p>
-                <p>Conservez ce ticket comme justificatif</p>
+              {/* Unique Verification QR Code */}
+              <div className="pt-2.5 border-t border-dashed border-slate-300 text-center space-y-1.5">
+                <div className="text-[10px] font-bold text-slate-700 uppercase tracking-wider flex items-center justify-center gap-1 font-sans">
+                  <QrCode className="w-3.5 h-3.5 text-amber-600" />
+                  <span>VÉRIFICATION COMMANDE & PAIEMENT</span>
+                </div>
+                {qrCodeUrl ? (
+                  <div className="py-1">
+                    <img
+                      src={qrCodeUrl}
+                      alt={`QR Code Facture ${sale.invoiceNumber}`}
+                      className="w-24 h-24 mx-auto p-1 bg-white border-2 border-slate-300 rounded-lg shadow-2xs image-rendering-pixelated"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-24 h-24 mx-auto bg-slate-100 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 text-[10px]">
+                    Génération QR...
+                  </div>
+                )}
+                <div>
+                  <span className="inline-block px-2 py-0.5 rounded bg-slate-900 text-white font-mono text-[10px] font-bold tracking-wide">
+                    FACTURE N° {sale.invoiceNumber}
+                  </span>
+                </div>
+                <p className="text-[9px] text-slate-500 font-sans leading-tight">
+                  Scannez ce QR code pour authentifier la facture et le bon de livraison
+                </p>
+              </div>
+
+              {/* Footer */}
+              <div className="text-center pt-2 border-t border-dashed border-slate-300 text-[10px] text-slate-600 space-y-0.5">
+                <p className="font-bold text-slate-800">*** MERCI DE VOTRE CONFIANCE ! ***</p>
+                <p className="text-[9px] text-slate-500">Facture thermique 80mm - Document comptable valide</p>
+                <p className="text-[9px] text-slate-400">Marchandise livrée et acceptée</p>
               </div>
             </div>
           )}

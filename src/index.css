@@ -96,6 +96,26 @@
     display: block !important;
   }
 
+  /* Specific 80mm Thermal Receipt Print Styling */
+  .printable-ticket-80mm {
+    width: 74mm !important;
+    max-width: 74mm !important;
+    margin: 0 auto !important;
+    padding: 2mm 1mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    font-size: 11px !important;
+    line-height: 1.35 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .printable-ticket-80mm img {
+    image-rendering: -webkit-optimize-contrast !important;
+    image-rendering: pixelated !important;
+  }
+
   /* Hide print buttons and close buttons when print dialog is open */
   .no-print,
   .no-print * {
@@ -105,7 +125,7 @@
 
   @page {
     size: auto;
-    margin: 10mm;
+    margin: 3mm;
   }
 }
 

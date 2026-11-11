@@ -131,6 +131,9 @@ export interface AppSettings {
   contactEmail: string;
   contactPhone: string;
   autoDeductStockOnSale: boolean;
+  defaultInvoiceFormat?: 'ticket' | 'a4'; // 'ticket' = Facture Thermique 80mm (défaut), 'a4' = Facture A4
+  companyLogo?: string; // Image base64 ou URL du logo d'entreprise
+  showLogoOnTicket?: boolean; // Afficher le logo sur les tickets thermiques 80mm (défaut true)
   updatedAt?: string;
 }
 

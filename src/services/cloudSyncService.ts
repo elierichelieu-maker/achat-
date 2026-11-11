@@ -350,7 +350,6 @@ export async function pingCloudConnection(): Promise<{ connected: boolean; laten
   try {
     await setDoc(doc(db, 'test', 'ping'), {
       timestamp: new Date().toISOString(),
-      clientTime: Date.now(),
     });
     const latencyMs = Math.round(performance.now() - start);
     return { connected: true, latencyMs };

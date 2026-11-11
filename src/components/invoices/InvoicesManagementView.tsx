@@ -241,7 +241,7 @@ export const InvoicesManagementView: React.FC<InvoicesManagementViewProps> = ({
       if (onPrintSale) {
         onPrintSale(selectedInvoice);
       } else {
-        await executePrintOrDownload(selectedInvoice, settings, 'a4');
+        await executePrintOrDownload(selectedInvoice, settings, settings?.defaultInvoiceFormat || 'ticket');
       }
     }
   };
@@ -249,7 +249,7 @@ export const InvoicesManagementView: React.FC<InvoicesManagementViewProps> = ({
   // Direct PDF download
   const handleDownloadPDF = async () => {
     if (selectedInvoice) {
-      await downloadInvoicePDF(selectedInvoice, settings, 'a4');
+      await downloadInvoicePDF(selectedInvoice, settings, settings?.defaultInvoiceFormat || 'ticket');
       setStatusNotice(`Facture ${selectedInvoice.invoiceNumber} téléchargée en PDF.`);
       setTimeout(() => setStatusNotice(null), 3500);
     }

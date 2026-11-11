@@ -1,12 +1,9 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import {
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
   getFirestore,
   doc,
-  getDoc,
+  getDocFromServer,
 } from 'firebase/firestore';
 import rawConfig from '../firebase-applet-config.json';
 
@@ -25,19 +22,8 @@ export const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with persistent IndexedDB offline cache for instant mobile reload
-let firestoreDb;
-try {
-  firestoreDb = initializeFirestore(app, {
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager(),
-    }),
-  }, firebaseConfig.firestoreDatabaseId);
-} catch {
-  firestoreDb = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-}
-
-export const db = firestoreDb;
+// Initialize Firestore using canonical getFirestore without multi-tab lease race conditions
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 
 export enum OperationType {
@@ -90,8 +76,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 // Background non-blocking connection check
 export async function testConnection() {
   try {
-    // Non-blocking cached doc test so phone doesn't freeze on reload
-    await getDoc(doc(db, 'test', 'connection'));
+    await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn('Firebase client is offline or connecting.');

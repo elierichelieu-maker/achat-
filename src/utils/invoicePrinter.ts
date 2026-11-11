@@ -1,3 +1,4 @@
+import QRCode from 'qrcode';
 import { Sale, AppSettings } from '../types';
 import { formatHTG } from './formatters';
 
@@ -13,13 +14,47 @@ export interface PrintResult {
 }
 
 /**
+ * Formats the unique invoice verification payload for QR codes.
+ * Contains invoice number, customer reference, and direct web validation link.
+ */
+export function getInvoiceVerificationContent(sale: Sale, baseUrl?: string): string {
+  const host =
+    baseUrl ||
+    (typeof window !== 'undefined' && window.location.origin
+      ? window.location.origin
+      : 'https://gestion-de-ventanakayit.netlify.app');
+  return `${host}/?facture=${encodeURIComponent(sale.invoiceNumber)}`;
+}
+
+/**
+ * Generates high-contrast, pixel-perfect QR Code data URL for 80mm thermal receipts.
+ */
+export async function generateInvoiceQRCodeDataUrl(sale: Sale, baseUrl?: string): Promise<string> {
+  const content = getInvoiceVerificationContent(sale, baseUrl);
+  try {
+    return await QRCode.toDataURL(content, {
+      width: 160,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+      color: {
+        dark: '#000000',
+        light: '#ffffff',
+      },
+    });
+  } catch (err) {
+    console.error('Failed to generate invoice QR code data URL:', err);
+    return '';
+  }
+}
+
+/**
  * Generate and download a PDF document using dynamic jsPDF import.
  * Guaranteed to work on mobile, desktop, and inside iframes without browser security blocks.
  */
 export async function downloadInvoicePDF(
   sale: Sale,
   settings?: AppSettings,
-  format: 'a4' | 'ticket' = 'a4'
+  format: 'ticket' | 'a4' = 'ticket'
 ): Promise<boolean> {
   try {
     const { jsPDF } = await import('jspdf');
@@ -42,41 +77,60 @@ export async function downloadInvoicePDF(
 
     if (format === 'ticket') {
       // =========================================================================
-      // FORMAT TICKET THERMIQUE 80mm
-      // =========================================================================
-      const baseHeight = 130 + sale.items.length * 12;
+      const hasLogo = settings?.showLogoOnTicket !== false && !!settings?.companyLogo;
+      const baseHeight = 175 + sale.items.length * 10 + (hasLogo ? 20 : 0) + 32;
       const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
-        format: [80, Math.max(160, baseHeight)],
+        format: [80, Math.max(180, baseHeight)],
       });
 
-      let y = 10;
+      let y = 8;
+
+      // Optional Company Logo at the top of 80mm Thermal Receipt
+      if (hasLogo && settings?.companyLogo) {
+        try {
+          const isPng = settings.companyLogo.includes('image/png');
+          const imgFormat = isPng ? 'PNG' : 'JPEG';
+          const logoW = 28;
+          const logoH = 14;
+          doc.addImage(settings.companyLogo, imgFormat, 40 - (logoW / 2), y, logoW, logoH, undefined, 'FAST');
+          y += logoH + 2;
+        } catch (err) {
+          console.warn('Could not render logo in PDF ticket:', err);
+        }
+      }
+
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
+      doc.setFontSize(11);
       doc.text(companyName.toUpperCase(), 40, y, { align: 'center' });
       y += 5;
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.text('Distribution Boissons & Eaux', 40, y, { align: 'center' });
+      doc.setFontSize(7.5);
+      doc.text('DISTRIBUTION BOISSONS GAZEUSES & VINS', 40, y, { align: 'center' });
+      y += 4;
+      doc.text(companyAddress.substring(0, 45), 40, y, { align: 'center' });
       y += 4;
       doc.text(`Tél: ${contactPhone} | NIF: ${companySiret}`, 40, y, { align: 'center' });
       y += 5;
 
       // Divider
-      doc.setDrawColor(180, 180, 180);
+      doc.setDrawColor(160, 160, 160);
       doc.line(6, y, 74, y);
       y += 5;
 
       // Ticket Info
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
-      doc.text(`TICKET DE CAISSE : ${sale.invoiceNumber}`, 40, y, { align: 'center' });
+      doc.text(`FACTURE N° : ${sale.invoiceNumber}`, 40, y, { align: 'center' });
+      y += 4;
+      doc.setFontSize(7.5);
+      doc.text(`STATUT : ${sale.status === 'completed' ? 'PAYÉE / ACQUITTÉE' : 'EN ATTENTE'}`, 40, y, { align: 'center' });
       y += 5;
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
+      doc.setFontSize(7.5);
       doc.text(`Date : ${dateFormatted} à ${timeFormatted}`, 6, y);
       y += 4;
       doc.text(`Client : ${sale.customerName} ${sale.customerCompany ? `(${sale.customerCompany})` : ''}`, 6, y);
@@ -92,7 +146,7 @@ export async function downloadInvoicePDF(
       // Items Table
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
-      doc.text('ARTICLES', 6, y);
+      doc.text('DÉSIGNATION', 6, y);
       doc.text('QTÉ', 48, y, { align: 'right' });
       doc.text('TOTAL HT', 74, y, { align: 'right' });
       y += 3;
@@ -116,7 +170,7 @@ export async function downloadInvoicePDF(
       // Totals
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
-      doc.text('Total HT :', 30, y);
+      doc.text('Sous-Total HT :', 30, y);
       doc.text(`${sale.totalHT.toLocaleString('fr-FR')} HTG`, 74, y, { align: 'right' });
       y += 4.5;
 
@@ -127,18 +181,38 @@ export async function downloadInvoicePDF(
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
-      doc.text('TOTAL TTC :', 25, y);
+      doc.text('TOTAL NET TTC :', 22, y);
       doc.text(`${sale.totalTTC.toLocaleString('fr-FR')} HTG`, 74, y, { align: 'right' });
-      y += 8;
+      y += 7;
+
+      // Unique verification QR code containing invoice number
+      try {
+        const qrDataUrl = await generateInvoiceQRCodeDataUrl(sale);
+        if (qrDataUrl) {
+          const qrSize = 25; // 25mm x 25mm centered
+          doc.addImage(qrDataUrl, 'PNG', 40 - (qrSize / 2), y, qrSize, qrSize, undefined, 'FAST');
+          y += qrSize + 2.5;
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7);
+          doc.text(`SCANNEZ POUR VÉRIFIER`, 40, y, { align: 'center' });
+          y += 3.5;
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6.5);
+          doc.text(`FACTURE N° ${sale.invoiceNumber}`, 40, y, { align: 'center' });
+          y += 4.5;
+        }
+      } catch (err) {
+        console.warn('Could not render QR code in PDF:', err);
+      }
 
       // Footer
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(7.5);
-      doc.text('Merci pour votre confiance !', 40, y, { align: 'center' });
+      doc.text('Merci de votre confiance !', 40, y, { align: 'center' });
       y += 4;
-      doc.text('Marchandise vendue ni reprise ni échangée.', 40, y, { align: 'center' });
+      doc.text('Facture thermique 80mm - Document comptable valide.', 40, y, { align: 'center' });
 
-      doc.save(`Ticket_${sale.invoiceNumber}.pdf`);
+      doc.save(`Facture_80mm_${sale.invoiceNumber}.pdf`);
       return true;
     } else {
       // =========================================================================
@@ -352,7 +426,8 @@ export async function downloadInvoicePDF(
 export function generatePrintableHTML(
   sale: Sale,
   settings?: AppSettings,
-  format: 'a4' | 'ticket' = 'a4'
+  format: 'ticket' | 'a4' = 'ticket',
+  qrCodeDataUrl?: string
 ): string {
   const companyName = settings?.companyName || 'OptiBoissons & Vins SAS';
   const companyAddress = settings?.companyAddress || 'Zone Industrielle Nord, Boulevard Toussaint Louverture, Port-au-Prince';
@@ -378,27 +453,33 @@ export function generatePrintableHTML(
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Ticket ${sale.invoiceNumber}</title>
+  <title>Facture 80mm ${sale.invoiceNumber}</title>
   <style>
-    @page { size: 80mm auto; margin: 4mm; }
-    body {
+    @page { size: 80mm auto; margin: 2mm 3mm; }
+    html, body {
       font-family: 'Courier New', Courier, monospace;
-      width: 72mm;
+      width: 74mm;
+      max-width: 74mm;
       margin: 0 auto;
-      padding: 4mm 0;
+      padding: 3mm 0;
       color: #000;
       font-size: 11px;
-      line-height: 1.3;
+      line-height: 1.35;
     }
     .text-center { text-align: center; }
     .text-right { text-align: right; }
     .bold { font-weight: bold; }
-    .title { font-size: 14px; margin-bottom: 2px; }
-    .divider { border-bottom: 1px dashed #000; margin: 6px 0; }
+    .title { font-size: 13.5px; font-weight: 900; margin-bottom: 2px; }
+    .badge { display: inline-block; background: #000; color: #fff; padding: 2px 6px; font-size: 9.5px; font-weight: bold; margin: 2px 0 4px 0; }
+    .divider { border-bottom: 1px dashed #444; margin: 6px 0; }
+    .divider-thick { border-bottom: 2px dashed #000; margin: 8px 0; }
     table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
-    th { border-bottom: 1px solid #000; padding: 2px 0; }
-    td { padding: 2px 0; }
-    .total-row { font-size: 13px; font-weight: bold; border-top: 1px solid #000; }
+    th { border-bottom: 1px solid #000; padding: 3px 0; text-transform: uppercase; font-size: 9.5px; }
+    td { padding: 3px 0; vertical-align: top; }
+    .item-name { font-weight: bold; }
+    .item-sub { font-size: 9.5px; color: #333; }
+    .total-row { font-size: 13px; font-weight: 900; border-top: 2px solid #000; padding-top: 4px; }
+    .barcode { font-size: 9px; letter-spacing: 2px; text-align: center; margin-top: 6px; }
     @media print {
       body { width: 100%; margin: 0; padding: 0; }
     }
@@ -406,26 +487,34 @@ export function generatePrintableHTML(
 </head>
 <body>
   <div class="text-center">
-    <div class="bold title">${companyName.toUpperCase()}</div>
-    <div>Distribution Boissons & Eaux</div>
+    ${
+      settings?.showLogoOnTicket !== false && settings?.companyLogo
+        ? `<div style="margin-bottom: 6px;"><img src="${settings.companyLogo}" alt="Logo Entreprise" style="max-height: 48px; max-width: 140px; object-fit: contain; filter: grayscale(100%) contrast(140%);" /></div>`
+        : ''
+    }
+    <div class="title">${companyName.toUpperCase()}</div>
+    <div class="badge">FACTURE D'ENCAISSEMENT 80MM</div>
+    <div>Distribution Boissons Gazeuses & Vins</div>
     <div>${companyAddress}</div>
     <div>Tél: ${contactPhone} | NIF: ${companySiret}</div>
   </div>
 
   <div class="divider"></div>
 
-  <div><strong>TICKET :</strong> ${sale.invoiceNumber}</div>
-  <div><strong>Date :</strong> ${dateFormatted} ${timeFormatted}</div>
-  <div><strong>Client :</strong> ${sale.customerName} ${sale.customerCompany ? `(${sale.customerCompany})` : ''}</div>
-  <div><strong>Vendeur :</strong> ${sale.sellerName}</div>
+  <div><strong>FACTURE N° :</strong> ${sale.invoiceNumber}</div>
+  <div><strong>Date & Heure :</strong> ${dateFormatted} ${timeFormatted}</div>
+  <div><strong>Client :</strong> ${sale.customerName}</div>
+  ${sale.customerCompany ? `<div><strong>Établissement :</strong> ${sale.customerCompany}</div>` : ''}
+  <div><strong>Vendeur / Caisse :</strong> ${sale.sellerName}</div>
   <div><strong>Paiement :</strong> ${sale.paymentMethod.toUpperCase()}</div>
+  <div><strong>Statut :</strong> ${sale.status === 'completed' ? 'PAYÉE / ACQUITTÉE' : 'EN ATTENTE'}</div>
 
   <div class="divider"></div>
 
   <table>
     <thead>
       <tr>
-        <th style="text-align: left;">Article</th>
+        <th style="text-align: left;">Désignation</th>
         <th style="text-align: center;">Qté</th>
         <th style="text-align: right;">Total</th>
       </tr>
@@ -434,16 +523,19 @@ export function generatePrintableHTML(
       ${sale.items
         .map(
           (item) => `<tr>
-            <td>${item.productName}</td>
-            <td style="text-align: center;">${item.quantity}</td>
-            <td style="text-align: right;">${item.totalPrice.toLocaleString('fr-FR')} G</td>
+            <td>
+              <div class="item-name">${item.productName}</div>
+              <div class="item-sub">${item.quantity} × ${item.unitPrice.toLocaleString('fr-FR')} HTG</div>
+            </td>
+            <td style="text-align: center; font-weight: bold;">${item.quantity}</td>
+            <td style="text-align: right; font-weight: bold;">${item.totalPrice.toLocaleString('fr-FR')} G</td>
           </tr>`
         )
         .join('')}
     </tbody>
   </table>
 
-  <div class="divider"></div>
+  <div class="divider-thick"></div>
 
   <table>
     <tr>
@@ -455,16 +547,35 @@ export function generatePrintableHTML(
       <td class="text-right">${tvaAmount.toLocaleString('fr-FR')} HTG</td>
     </tr>
     <tr class="total-row">
-      <td style="padding-top: 4px;">TOTAL TTC :</td>
+      <td style="padding-top: 4px;">TOTAL NET TTC :</td>
       <td class="text-right" style="padding-top: 4px;">${sale.totalTTC.toLocaleString('fr-FR')} HTG</td>
     </tr>
   </table>
 
   <div class="divider"></div>
 
-  <div class="text-center" style="font-size: 9.5px; margin-top: 6px;">
-    <div>Merci de votre confiance !</div>
-    <div>Marchandise vendue ni reprise ni échangée.</div>
+  <!-- Unique Verification QR Code -->
+  <div class="text-center" style="margin: 6px 0;">
+    <div class="bold" style="font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px;">
+      VÉRIFICATION COMMANDE & PAIEMENT
+    </div>
+    ${
+      qrCodeDataUrl
+        ? `<img src="${qrCodeDataUrl}" alt="QR Code Facture ${sale.invoiceNumber}" style="width: 105px; height: 105px; margin: 2px auto; display: block; image-rendering: pixelated;" />`
+        : `<div class="barcode">||| | ||||| |||| || |||||| ||||| ||| ||||</div>`
+    }
+    <div style="font-family: 'Courier New', Courier, monospace; font-size: 10px; font-weight: bold; margin-top: 3px;">
+      FACTURE N° ${sale.invoiceNumber}
+    </div>
+    <div style="font-size: 8px; color: #444; margin-top: 1px;">
+      Scannez ce QR code pour authentifier la facture
+    </div>
+  </div>
+
+  <div class="text-center" style="font-size: 9px; margin-top: 8px; line-height: 1.3;">
+    <div class="bold">*** MERCI DE VOTRE CONFIANCE ! ***</div>
+    <div>Facture simplifiée 80mm - Document comptable valide</div>
+    <div>Marchandise livrée et acceptée</div>
   </div>
 
   <script>
@@ -524,6 +635,7 @@ export function generatePrintableHTML(
   <div class="header-bar"></div>
   <div class="flex">
     <div>
+      ${settings?.companyLogo ? `<img src="${settings.companyLogo}" alt="Logo Entreprise" style="max-height: 46px; max-width: 170px; object-fit: contain; margin-bottom: 8px; display: block;" />` : ''}
       <h1 class="company-title">${companyName}</h1>
       <div class="company-sub">Distribution & Grossiste Boissons & Eaux</div>
       <div style="font-size: 11px; color: #475569; margin-top: 6px;">
@@ -623,9 +735,11 @@ export function generatePrintableHTML(
 export async function executePrintOrDownload(
   sale: Sale,
   settings?: AppSettings,
-  format: 'a4' | 'ticket' = 'a4'
+  format: 'ticket' | 'a4' = 'ticket',
+  pregeneratedQrDataUrl?: string
 ): Promise<PrintResult> {
-  const html = generatePrintableHTML(sale, settings, format);
+  const qrCodeDataUrl = pregeneratedQrDataUrl || (await generateInvoiceQRCodeDataUrl(sale));
+  const html = generatePrintableHTML(sale, settings, format, qrCodeDataUrl);
 
   // Method 1: Try printing via clean hidden iframe
   try {
@@ -700,7 +814,7 @@ export async function executePrintOrDownload(
   }
 
   // Method 4: Standalone HTML download as absolute emergency backup
-  downloadPrintableHTML(sale, settings, format);
+  await downloadPrintableHTML(sale, settings, format, qrCodeDataUrl);
   return {
     success: true,
     methodUsed: 'html_download',
@@ -711,12 +825,14 @@ export async function executePrintOrDownload(
 /**
  * Downloads standalone HTML file that opens and prints in any browser
  */
-export function downloadPrintableHTML(
+export async function downloadPrintableHTML(
   sale: Sale,
   settings?: AppSettings,
-  format: 'a4' | 'ticket' = 'a4'
+  format: 'ticket' | 'a4' = 'ticket',
+  pregeneratedQrDataUrl?: string
 ) {
-  const html = generatePrintableHTML(sale, settings, format);
+  const qrCodeDataUrl = pregeneratedQrDataUrl || (await generateInvoiceQRCodeDataUrl(sale));
+  const html = generatePrintableHTML(sale, settings, format, qrCodeDataUrl);
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

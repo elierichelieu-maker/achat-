@@ -123,6 +123,9 @@
         "contactEmail": { "type": "string" },
         "contactPhone": { "type": "string" },
         "autoDeductStockOnSale": { "type": "boolean" },
+        "defaultInvoiceFormat": { "type": "string" },
+        "companyLogo": { "type": "string" },
+        "showLogoOnTicket": { "type": "boolean" },
         "updatedAt": { "type": "string" }
       },
       "required": ["companyName", "currency"]

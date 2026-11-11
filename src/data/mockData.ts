@@ -650,6 +650,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   contactEmail: 'contact@distriboissons.fr',
   contactPhone: '+33 1 48 34 50 00',
   autoDeductStockOnSale: true,
+  defaultInvoiceFormat: 'ticket', // Format Facture Thermique 80mm par défaut
+  showLogoOnTicket: true, // Afficher le logo de l'entreprise sur le ticket thermique 80mm
 };
 
 export const DEFAULT_EXCHANGE_RATES: ExchangeRateConfig = {
