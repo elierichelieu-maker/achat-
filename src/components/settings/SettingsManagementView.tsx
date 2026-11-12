@@ -517,6 +517,50 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
               <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
             </label>
           </div>
+
+          {/* Seuil d'Alerte Stock Faible Global */}
+          <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <span className="font-semibold text-slate-900 block">
+                  Seuil d'Alerte Stock Faible (Dashboard & Inventaire)
+                </span>
+                <span className="text-slate-500 text-[11px]">
+                  Les boissons dont le stock est inférieur ou égal à ce seuil apparaissent automatiquement dans la section « Alertes Stock Faible »
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min="1"
+                  max="500"
+                  value={formData.defaultStockMinAlert || 15}
+                  onChange={(e) =>
+                    updateField('defaultStockMinAlert', Math.max(1, parseInt(e.target.value) || 1))
+                  }
+                  className="w-24 px-3 py-1.5 text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg text-slate-900 text-right focus:ring-2 focus:ring-amber-500"
+                />
+                <span className="text-xs text-slate-600 font-medium">unités</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 pt-1">
+              <span className="text-[11px] text-slate-500">Préréglages rapides :</span>
+              {[5, 10, 15, 20, 30].map((val) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => updateField('defaultStockMinAlert', val)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
+                    (formData.defaultStockMinAlert || 15) === val
+                      ? 'bg-amber-500 text-slate-950 font-bold shadow-2xs'
+                      : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  {val} u.
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Invoice Format Preference: 80mm POS Thermal Receipt vs A4 */}

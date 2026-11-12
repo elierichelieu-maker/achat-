@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { Product, Seller, Sale, TimeRange, ExchangeRateConfig } from '../../types';
+import { Product, Seller, Sale, TimeRange, ExchangeRateConfig, AppSettings } from '../../types';
 import { InteractiveRevenueChart } from '../charts/InteractiveRevenueChart';
-import { StockSecurityAlertsSection } from './StockSecurityAlertsSection';
+import { SalesTrendChart } from '../charts/SalesTrendChart';
+import { WeeklyRevenueChart } from '../charts/WeeklyRevenueChart';
+import { LowStockAlertsSection } from './LowStockAlertsSection';
 import { TrendingUp, ShoppingBag, Package, Users, AlertTriangle, ArrowUpRight, DollarSign, ArrowRight, ShieldCheck, Wine, ArrowLeftRight, Printer, Download, Crown, Lock, Target } from 'lucide-react';
 import { formatHTG } from '../../utils/formatters';
 import { downloadInvoicePDF } from '../../utils/invoicePrinter';
@@ -11,6 +13,9 @@ interface OverviewDashboardProps {
   sellers: Seller[];
   sales: Sale[];
   exchangeRates?: ExchangeRateConfig;
+  settings?: AppSettings;
+  onUpdateSettings?: (settings: AppSettings) => void;
+  onNavigateToSettings?: () => void;
   onOpenNewSale: () => void;
   onNavigateToStocks: () => void;
   onNavigateToSellers: () => void;
@@ -29,6 +34,9 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   sellers,
   sales,
   exchangeRates,
+  settings,
+  onUpdateSettings,
+  onNavigateToSettings,
   onOpenNewSale,
   onNavigateToStocks,
   onNavigateToSellers,
@@ -451,12 +459,21 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         )}
       </div>
 
-      {/* Dedicated Stock Security Alerts Section */}
-      <StockSecurityAlertsSection
+      {/* Section Alertes Stock Faible avec seuil défini dans les paramètres et réapprovisionnement rapide */}
+      <LowStockAlertsSection
         products={products}
+        settings={settings}
         onNavigateToStocks={onNavigateToStocks}
+        onNavigateToSettings={onNavigateToSettings}
         onRestock={onRestock}
+        onUpdateSettings={onUpdateSettings}
       />
+
+      {/* Dedicated Recharts Daily Sales Trend Visualizer */}
+      <SalesTrendChart sales={sales} />
+
+      {/* Graphique Linéaire de l'Évolution Hebdomadaire du Chiffre d'Affaires (4 Dernières Semaines) */}
+      <WeeklyRevenueChart sales={sales} />
 
       {/* Main Interactive Revenue & Margin Chart */}
       <InteractiveRevenueChart sales={filteredSales} days={days} />

@@ -20,6 +20,12 @@ import {
   Loader2,
   Image as ImageIcon,
   QrCode,
+  Upload,
+  Trash2,
+  Check,
+  Settings,
+  AlertCircle,
+  Link as LinkIcon,
 } from 'lucide-react';
 import {
   executePrintOrDownload,
@@ -28,17 +34,20 @@ import {
   shareInvoiceViaWhatsApp,
   generateInvoiceQRCodeDataUrl,
 } from '../../utils/invoicePrinter';
+import { syncSaveSettings } from '../../services/cloudSyncService';
 
 interface InvoiceReceiptModalProps {
   sale: Sale | null;
   settings?: AppSettings;
   onClose: () => void;
+  onUpdateSettings?: (settings: AppSettings) => void;
 }
 
 export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
   sale,
   settings,
   onClose,
+  onUpdateSettings,
 }) => {
   // Defaults directly to Ticket 80mm ("un facture de 80mm je veux")
   const [printFormat, setPrintFormat] = useState<'ticket' | 'a4'>(
@@ -53,6 +62,20 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
     type: 'success' | 'info' | 'error';
     text: string;
   } | null>(null);
+
+  const [currentLogoUrl, setCurrentLogoUrl] = useState<string>(settings?.companyLogo || '');
+  const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
+  const [inputLogoUrl, setInputLogoUrl] = useState<string>(settings?.companyLogo || '');
+  const [isSavingLogo, setIsSavingLogo] = useState(false);
+  const [logoPreviewStatus, setLogoPreviewStatus] = useState<'idle' | 'valid' | 'error'>('idle');
+
+  // Keep local logo in sync when settings change
+  useEffect(() => {
+    if (settings?.companyLogo !== undefined) {
+      setCurrentLogoUrl(settings.companyLogo || '');
+      setInputLogoUrl(settings.companyLogo || '');
+    }
+  }, [settings?.companyLogo]);
 
   // Generate unique verification QR Code containing the invoice number
   useEffect(() => {
@@ -74,6 +97,7 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
   const effectiveSettings: AppSettings | undefined = settings
     ? {
         ...settings,
+        companyLogo: currentLogoUrl,
         showLogoOnTicket: includeLogoOnTicket,
       }
     : undefined;
@@ -81,6 +105,68 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
   const showNotice = (text: string, type: 'success' | 'info' | 'error' = 'success') => {
     setFeedbackNotice({ type, text });
     setTimeout(() => setFeedbackNotice(null), 4500);
+  };
+
+  // Define and store company logo URL permanently
+  const handleSaveLogo = async (urlToSave: string) => {
+    if (!settings) return;
+    setIsSavingLogo(true);
+    const cleanUrl = urlToSave.trim();
+    const updatedSettings: AppSettings = {
+      ...settings,
+      companyLogo: cleanUrl,
+      showLogoOnTicket: true,
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      // 1. Update component local state for immediate dynamic re-rendering
+      setCurrentLogoUrl(cleanUrl);
+      setIncludeLogoOnTicket(true);
+
+      // 2. Notify parent App component
+      if (onUpdateSettings) {
+        onUpdateSettings(updatedSettings);
+      }
+
+      // 3. Persist to Firebase Cloud Firestore and localStorage
+      await syncSaveSettings(updatedSettings);
+      try {
+        localStorage.setItem('optiboissons_settings_v2', JSON.stringify(updatedSettings));
+      } catch {}
+
+      setIsLogoModalOpen(false);
+      showNotice(
+        cleanUrl
+          ? "Logo de l'entreprise enregistré avec succès ! Il s'affiche désormais dynamiquement sur vos tickets 80mm."
+          : "Logo personnalisé retiré.",
+        'success'
+      );
+    } catch (err) {
+      console.error('Erreur sauvegarde logo:', err);
+      showNotice("Erreur lors de la sauvegarde du logo. Veuillez réessayer.", 'error');
+    } finally {
+      setIsSavingLogo(false);
+    }
+  };
+
+  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert("L'image est trop volumineuse (maximum 2 Mo).");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      if (base64) {
+        setInputLogoUrl(base64);
+        setLogoPreviewStatus('valid');
+      }
+    };
   };
 
   // 1. Direct Print with automatic fallback
@@ -219,6 +305,21 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
               <span className="font-bold">{includeLogoOnTicket ? 'Inclus' : 'Masqué'}</span>
             </button>
 
+            {/* Define and Store Logo URL Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setInputLogoUrl(currentLogoUrl);
+                setLogoPreviewStatus(currentLogoUrl ? 'valid' : 'idle');
+                setIsLogoModalOpen(true);
+              }}
+              className="px-2.5 py-1 text-xs rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-medium transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+              title="Définir et stocker une URL d'image pour le logo de l'entreprise"
+            >
+              <Settings className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Définir Logo</span>
+            </button>
+
             <button
               type="button"
               onClick={handlePrint}
@@ -315,9 +416,9 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
               {/* Header: Company + Water Bottle Logo */}
               <div className="flex flex-col sm:flex-row items-start justify-between gap-4 border-b border-slate-200 pb-5">
                 <div className="flex items-start gap-3">
-                  {settings?.companyLogo ? (
+                  {currentLogoUrl ? (
                     <img
-                      src={settings.companyLogo}
+                      src={currentLogoUrl}
                       alt={companyName}
                       className="max-h-14 max-w-[140px] object-contain rounded-lg p-0.5 border border-slate-200 bg-white shrink-0"
                     />
@@ -480,19 +581,41 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
               {/* Receipt Header */}
               <div className="text-center space-y-1 pb-3 border-b-2 border-dashed border-slate-400">
                 {includeLogoOnTicket && (
-                  settings?.companyLogo ? (
-                    <div className="py-1">
-                      <img
-                        src={settings.companyLogo}
-                        alt="Logo entreprise"
-                        className="max-h-14 max-w-[150px] mx-auto object-contain mb-1"
-                      />
+                  <div className="space-y-1">
+                    {currentLogoUrl ? (
+                      <div className="py-1">
+                        <img
+                          src={currentLogoUrl}
+                          alt="Logo entreprise"
+                          className="max-h-14 max-w-[150px] mx-auto object-contain mb-1"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-10 h-10 mx-auto rounded-xl bg-amber-600 text-white flex items-center justify-center mb-1 shadow-xs">
+                        <WaterBottleLogo className="w-6 h-6 text-white" />
+                      </div>
+                    )}
+                    
+                    {/* Quick interactive shortcut to set/change logo right from the 80mm preview (hidden during printing) */}
+                    <div className="no-print pt-0.5 pb-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInputLogoUrl(currentLogoUrl);
+                          setLogoPreviewStatus(currentLogoUrl ? 'valid' : 'idle');
+                          setIsLogoModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-sans font-medium text-amber-800 hover:text-amber-950 bg-amber-100/70 hover:bg-amber-200/80 border border-amber-300 transition-all cursor-pointer shadow-2xs"
+                        title="Configurer l'image du logo pour le ticket 80mm"
+                      >
+                        <Settings className="w-3 h-3 text-amber-700" />
+                        <span>{currentLogoUrl ? "Modifier l'URL du logo" : "Définir l'URL du logo 80mm"}</span>
+                      </button>
                     </div>
-                  ) : (
-                    <div className="w-10 h-10 mx-auto rounded-xl bg-amber-600 text-white flex items-center justify-center mb-1 shadow-xs">
-                      <WaterBottleLogo className="w-6 h-6 text-white" />
-                    </div>
-                  )
+                  </div>
                 )}
                 <h2 className="font-black text-sm tracking-tight text-slate-900">{companyName.toUpperCase()}</h2>
                 <div className="inline-block px-2 py-0.5 rounded-sm bg-slate-900 text-white text-[10px] font-bold uppercase tracking-wider">
@@ -659,6 +782,180 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({
         </div>
 
       </div>
+
+      {/* Sub-modal: Définir & Stocker le Logo de l'Entreprise pour le Ticket 80mm */}
+      {isLogoModalOpen && (
+        <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="px-5 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  <ImageIcon className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Logo de l'Entreprise (Ticket 80mm)</h3>
+                  <p className="text-[11px] text-slate-400">Définissez et stockez l'URL du logo pour l'impression thermique</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsLogoModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4">
+              {/* Option 1: URL input */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">
+                  URL de l'image du logo (HTTPS / PNG / JPG / SVG)
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <LinkIcon className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="url"
+                    value={inputLogoUrl}
+                    onChange={(e) => {
+                      setInputLogoUrl(e.target.value);
+                      if (!e.target.value) {
+                        setLogoPreviewStatus('idle');
+                      }
+                    }}
+                    placeholder="https://example.com/logo-distriboissons.png"
+                    className="w-full pl-9 pr-24 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-slate-900 bg-white"
+                  />
+                  {inputLogoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInputLogoUrl('');
+                        setLogoPreviewStatus('idle');
+                      }}
+                      className="absolute inset-y-0 right-2 px-2 text-[10px] font-semibold text-slate-400 hover:text-slate-700 my-auto h-6 flex items-center"
+                    >
+                      Effacer
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Entrez l'URL publique directe d'hébergement de votre logo ou importez un fichier ci-dessous.
+                </p>
+              </div>
+
+              {/* Option 2: Upload local image */}
+              <div className="pt-2 border-t border-slate-100">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Ou importer une image locale (convertie automatiquement)
+                </label>
+                <label className="flex items-center justify-center gap-2 px-4 py-2.5 border border-dashed border-slate-300 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 cursor-pointer transition-colors text-xs font-medium">
+                  <Upload className="w-4 h-4 text-slate-500" />
+                  <span>Choisir un fichier image (PNG, JPG, max 2 Mo)</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogoFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {/* Live Preview on 80mm receipt simulation */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                    Aperçu sur Ticket 80mm
+                  </span>
+                  {inputLogoUrl ? (
+                    logoPreviewStatus === 'valid' ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 bg-emerald-100 font-semibold px-2 py-0.5 rounded-full">
+                        <Check className="w-3 h-3" /> Image valide
+                      </span>
+                    ) : logoPreviewStatus === 'error' ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-rose-700 bg-rose-100 font-semibold px-2 py-0.5 rounded-full">
+                        <AlertCircle className="w-3 h-3" /> URL inaccessible
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-500">Prêt</span>
+                    )
+                  ) : (
+                    <span className="text-[10px] text-slate-400">Aucun logo défini</span>
+                  )}
+                </div>
+
+                <div className="w-full bg-white border border-slate-200 rounded-lg p-3 text-center flex flex-col items-center justify-center min-h-[90px]">
+                  {inputLogoUrl ? (
+                    <img
+                      src={inputLogoUrl}
+                      alt="Aperçu logo"
+                      className="max-h-16 max-w-[180px] object-contain"
+                      onLoad={() => setLogoPreviewStatus('valid')}
+                      onError={() => setLogoPreviewStatus('error')}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-slate-400 gap-1 py-2">
+                      <WaterBottleLogo className="w-8 h-8 text-slate-300" />
+                      <span className="text-[11px] italic">Icône bouteille par défaut utilisée</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
+              <div>
+                {currentLogoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => handleSaveLogo('')}
+                    disabled={isSavingLogo}
+                    className="px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:text-rose-900 hover:bg-rose-50 rounded-lg transition-colors flex items-center gap-1 border border-rose-200"
+                    title="Supprimer le logo personnalisé"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Retirer Logo</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsLogoModalOpen(false)}
+                  disabled={isSavingLogo}
+                  className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveLogo(inputLogoUrl)}
+                  disabled={isSavingLogo || logoPreviewStatus === 'error'}
+                  className="px-4 py-1.5 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+                >
+                  {isSavingLogo ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Enregistrement...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Enregistrer et Appliquer</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

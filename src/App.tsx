@@ -1267,6 +1267,9 @@ export default function App() {
                   onNavigateToInvoices={() => handleTabSelect('invoices')}
                   onNavigateToExchange={() => handleTabSelect('exchange')}
                   exchangeRates={exchangeRates}
+                  settings={settings}
+                  onUpdateSettings={handleSaveSettings}
+                  onNavigateToSettings={() => handleTabSelect('settings')}
                   onRestock={handleRestock}
                   onPrintSale={setSaleToPrint}
                   currentUser={currentUser}
@@ -1472,6 +1475,9 @@ export default function App() {
                   onNavigateToInvoices={() => handleTabSelect('invoices')}
                   onNavigateToExchange={() => handleTabSelect('exchange')}
                   exchangeRates={exchangeRates}
+                  settings={settings}
+                  onUpdateSettings={handleSaveSettings}
+                  onNavigateToSettings={() => handleTabSelect('settings')}
                   onRestock={handleRestock}
                   onPrintSale={setSaleToPrint}
                   currentUser={currentUser}
@@ -1829,6 +1835,7 @@ export default function App() {
             sale={saleToPrint}
             settings={settings}
             onClose={() => setSaleToPrint(null)}
+            onUpdateSettings={handleSaveSettings}
           />
         )}
 
