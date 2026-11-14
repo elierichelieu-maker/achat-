@@ -28,6 +28,11 @@ import {
   Crown,
 } from 'lucide-react';
 import { formatHTG } from '../../utils/formatters';
+import { validateSellerInput } from '../../utils/validators';
+import { useTableControls } from '../../hooks/useTableControls';
+import { SortableHeader } from '../common/SortableHeader';
+import { TablePagination } from '../common/TablePagination';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 
 interface UsersManagementViewProps {
   sellers: Seller[];
@@ -66,6 +71,8 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<Seller | null>(null);
   const [userToDelete, setUserToDelete] = useState<Seller | null>(null);
+  const [addFormErrors, setAddFormErrors] = useState<Record<string, string>>({});
+  const [editFormErrors, setEditFormErrors] = useState<Record<string, string>>({});
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
 
   // New User Form State
@@ -151,12 +158,42 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
     });
   }, [usersWithStats, searchQuery, roleFilter, statusFilter]);
 
-  // Submit Add User
+  // Tri multi-colonnes et pagination de l'équipe
+  type UserSortField = 'name' | 'role' | 'status' | 'targetMonthlyRevenue' | 'totalRevenue' | 'commissionEarned';
+  type UserRow = (typeof usersWithStats)[number];
+  const {
+    sortField,
+    sortDirection,
+    toggleSort,
+    page,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedUsers,
+    setPage,
+    setPageSize,
+  } = useTableControls<UserRow, UserSortField>({
+    items: filteredUsers,
+    defaultSortField: 'totalRevenue',
+    defaultSortDirection: 'desc',
+    defaultPageSize: 10,
+  });
+
+  // Submit Add User avec validation
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUserData.name.trim() || !newUserData.email.trim()) return;
+    const validation = validateSellerInput(newUserData, false);
+    if (!validation.valid) {
+      setAddFormErrors(validation.errors);
+      return;
+    }
+    setAddFormErrors({});
 
-    onAddSeller(newUserData);
+    onAddSeller({
+      ...newUserData,
+      name: newUserData.name.trim(),
+      email: newUserData.email.trim(),
+    });
     setIsAddModalOpen(false);
     showToast(`Utilisateur "${newUserData.name}" créé avec succès.`);
     setNewUserData({
@@ -172,12 +209,23 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
     });
   };
 
-  // Submit Edit User
+  // Submit Edit User avec validation
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
 
-    onUpdateSeller(editingUser);
+    const validation = validateSellerInput(editingUser, false);
+    if (!validation.valid) {
+      setEditFormErrors(validation.errors);
+      return;
+    }
+    setEditFormErrors({});
+
+    onUpdateSeller({
+      ...editingUser,
+      name: editingUser.name.trim(),
+      email: editingUser.email.trim(),
+    });
     showToast(`Utilisateur "${editingUser.name}" mis à jour.`);
     setEditingUser(null);
   };
@@ -486,17 +534,17 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-medium">
                 <tr>
-                  <th className="py-3 px-4">Utilisateur & Contact</th>
-                  <th className="py-3 px-4">Rôle & Fonction</th>
-                  <th className="py-3 px-4 text-center">Statut</th>
-                  <th className="py-3 px-4 text-right">Objectif Mensuel</th>
-                  <th className="py-3 px-4 text-right">CA Réalisé</th>
-                  <th className="py-3 px-4 text-right">Commission</th>
+                  <SortableHeader label="Utilisateur & Contact" field="name" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                  <SortableHeader label="Rôle & Fonction" field="role" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                  <SortableHeader label="Statut" field="status" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="center" />
+                  <SortableHeader label="Objectif Mensuel" field="targetMonthlyRevenue" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
+                  <SortableHeader label="CA Réalisé" field="totalRevenue" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
+                  <SortableHeader label="Commission" field="commissionEarned" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredUsers.map((u) => {
+                {paginatedUsers.map((u) => {
                   return (
                     <tr key={u.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-3 px-4">
@@ -630,7 +678,10 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
 
                           <button
                             type="button"
-                            onClick={() => setEditingUser(u)}
+                            onClick={() => {
+                              setEditingUser(u);
+                              setEditFormErrors({});
+                            }}
                             title="Modifier ce compte"
                             className="px-2 py-1 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 transition-colors whitespace-nowrap flex items-center gap-1 shadow-2xs"
                           >
@@ -653,7 +704,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
                   );
                 })}
 
-                {filteredUsers.length === 0 && (
+                {paginatedUsers.length === 0 && (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-slate-400">
                       Aucun utilisateur ne correspond à vos filtres.
@@ -663,6 +714,16 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
               </tbody>
             </table>
           </div>
+
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={totalItems}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            itemLabel="utilisateurs"
+          />
         </div>
       )}
 
@@ -798,6 +859,14 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
             </div>
 
             <form onSubmit={handleAddSubmit} className="space-y-4">
+              {Object.keys(addFormErrors).length > 0 && (
+                <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs space-y-1">
+                  <strong className="font-bold block">Veuillez corriger les champs suivants :</strong>
+                  {Object.values(addFormErrors).map((err, idx) => (
+                    <div key={idx}>• {err}</div>
+                  ))}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">
                   Nom Complet
@@ -1025,6 +1094,14 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
             </div>
 
             <form onSubmit={handleEditSubmit} className="space-y-4">
+              {Object.keys(editFormErrors).length > 0 && (
+                <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs space-y-1">
+                  <strong className="font-bold block">Veuillez corriger les champs suivants :</strong>
+                  {Object.values(editFormErrors).map((err, idx) => (
+                    <div key={idx}>• {err}</div>
+                  ))}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">
                   Nom Complet
@@ -1219,65 +1296,19 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
         </div>
       )}
 
-      {/* ========================================================
-          MODAL: SUPPRIMER UN UTILISATEUR
-          ======================================================== */}
-      {userToDelete && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2.5 rounded-full bg-red-100 text-red-600 shrink-0">
-                <Trash2 className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  Supprimer cet utilisateur ?
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Cette action retirera le profil de l'équipe
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg mb-4 text-xs space-y-1.5">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Nom :</span>
-                <span className="font-semibold text-slate-900">{userToDelete.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Rôle :</span>
-                <span className="text-slate-800">{userToDelete.role}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Email :</span>
-                <span className="text-slate-800 font-mono">{userToDelete.email}</span>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-500 mb-5">
-              Êtes-vous sûr de vouloir supprimer définitivement l'utilisateur <strong>{userToDelete.name}</strong> ?
-            </p>
-
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setUserToDelete(null)}
-                className="px-3.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Confirmer la suppression</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Confirmation unifiée avant suppression d'un utilisateur */}
+      <ConfirmDialog
+        isOpen={Boolean(userToDelete)}
+        title="Supprimer cet utilisateur ?"
+        description="Cette action retirera définitivement ce collaborateur de l'équipe et révoquera son accès."
+        itemDetail={
+          userToDelete ? `${userToDelete.name} · ${userToDelete.role} (${userToDelete.email})` : undefined
+        }
+        confirmLabel="Confirmer la suppression"
+        tone="danger"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setUserToDelete(null)}
+      />
     </div>
   );
 };

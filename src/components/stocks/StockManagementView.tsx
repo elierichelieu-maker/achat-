@@ -1,11 +1,19 @@
 import React, { useState, useMemo } from 'react';
-import { Product, StockMovement } from '../../types';
-import { AlertTriangle, Plus, Search, ArrowDownRight, ArrowUpRight, RefreshCw, Download, CheckCircle, Package, Edit, Trash2, X, Lock, Crown, Shield, Eye } from 'lucide-react';
-import { formatHTG } from '../../utils/formatters';
+import { Product, StockMovement, Customer, AppSettings, getEffectiveStockThreshold } from '../../types';
+import { AlertTriangle, Plus, Search, ArrowDownRight, ArrowUpRight, RefreshCw, Download, CheckCircle, Package, Edit, Trash2, X, Lock, Crown, Shield, CalendarClock, SlidersHorizontal, BellRing, RotateCcw } from 'lucide-react';
+import { formatHTG, formatDateFR } from '../../utils/formatters';
+import { validateProductInput } from '../../utils/validators';
+import { useTableControls } from '../../hooks/useTableControls';
+import { SortableHeader } from '../common/SortableHeader';
+import { TablePagination } from '../common/TablePagination';
+import { ConfirmDialog } from '../common/ConfirmDialog';
+import { getDaysUntilExpiration } from '../dashboard/ExpirationAlertsSection';
 
 interface StockManagementViewProps {
   products: Product[];
   movements: StockMovement[];
+  customers?: Customer[];
+  settings?: AppSettings;
   onUpdateProduct: (product: Product) => void;
   onAddProduct: (product: Omit<Product, 'id' | 'updatedAt'>) => void;
   onRestock: (productId: string, quantity: number, reason?: string) => void;
@@ -16,6 +24,8 @@ interface StockManagementViewProps {
 export const StockManagementView: React.FC<StockManagementViewProps> = ({
   products,
   movements,
+  customers = [],
+  settings,
   onUpdateProduct,
   onAddProduct,
   onRestock,
@@ -24,7 +34,7 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'low' | 'out' | 'healthy'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'low' | 'out' | 'expiring' | 'healthy'>('all');
   
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -40,8 +50,18 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
   // Delete Product Modal State
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
 
+  // Custom Alert Threshold Modal State
+  const [thresholdModalProduct, setThresholdModalProduct] = useState<Product | null>(null);
+  const [customThresholdInput, setCustomThresholdInput] = useState<number>(15);
+
   // Toast feedback state
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'danger' | 'info' } | null>(null);
+
+  // Erreurs de validation des formulaires
+  const [addFormErrors, setAddFormErrors] = useState<Record<string, string>>({});
+  const [editFormErrors, setEditFormErrors] = useState<Record<string, string>>({});
+
+  const globalDefaultThreshold = settings?.defaultStockMinAlert ?? 15;
 
   // New Product Form State
   const [newProd, setNewProd] = useState<Omit<Product, 'id' | 'updatedAt'>>({
@@ -56,6 +76,8 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
     alcoholDegree: 0.0,
     volume: 'Pack 24×33cl',
     isConsigne: false,
+    expirationDate: '',
+    batchNumber: '',
   });
 
   // Categories list
@@ -71,15 +93,23 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
     let totalSaleVal = 0;
     let lowStockCount = 0;
     let outOfStockCount = 0;
+    let expiringSoonCount = 0;
+    let customThresholdCount = 0;
 
     products.forEach((p) => {
+      const { threshold, isCustom } = getEffectiveStockThreshold(p, globalDefaultThreshold);
+      if (isCustom) customThresholdCount++;
       totalItems += p.stock;
       totalCostVal += p.stock * p.costPrice;
       totalSaleVal += p.stock * p.salePrice;
       if (p.stock === 0) {
         outOfStockCount++;
-      } else if (p.stock <= p.minStockAlert) {
+      } else if (p.stock <= threshold) {
         lowStockCount++;
+      }
+      const daysLeft = getDaysUntilExpiration(p.expirationDate);
+      if (daysLeft !== null && daysLeft <= 30) {
+        expiringSoonCount++;
       }
     });
 
@@ -94,15 +124,19 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
       marginRate,
       lowStockCount,
       outOfStockCount,
+      expiringSoonCount,
+      customThresholdCount,
     };
-  }, [products]);
+  }, [products, globalDefaultThreshold]);
 
   // Filter products
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
+      const { threshold } = getEffectiveStockThreshold(p, globalDefaultThreshold);
       const matchesSearch =
         p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.sku.toLowerCase().includes(searchQuery.toLowerCase());
+        p.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.batchNumber || '').toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesCat = selectedCategory === 'all' || p.category === selectedCategory;
 
@@ -110,14 +144,47 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
       if (statusFilter === 'out') {
         matchesStatus = p.stock === 0;
       } else if (statusFilter === 'low') {
-        matchesStatus = p.stock > 0 && p.stock <= p.minStockAlert;
+        matchesStatus = p.stock > 0 && p.stock <= threshold;
+      } else if (statusFilter === 'expiring') {
+        const daysLeft = getDaysUntilExpiration(p.expirationDate);
+        matchesStatus = daysLeft !== null && daysLeft <= 30;
       } else if (statusFilter === 'healthy') {
-        matchesStatus = p.stock > p.minStockAlert;
+        matchesStatus = p.stock > threshold;
       }
 
       return matchesSearch && matchesCat && matchesStatus;
     });
-  }, [products, searchQuery, selectedCategory, statusFilter]);
+  }, [products, searchQuery, selectedCategory, statusFilter, globalDefaultThreshold]);
+
+  // Tri multi-colonnes et pagination du tableau inventaire
+  type ProductSortField = 'name' | 'category' | 'costPrice' | 'salePrice' | 'margin' | 'stock' | 'expirationDate';
+  const {
+    sortField,
+    sortDirection,
+    toggleSort,
+    page,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedProducts,
+    setPage,
+    setPageSize,
+  } = useTableControls<Product, ProductSortField>({
+    items: filteredProducts,
+    defaultSortField: 'name',
+    defaultSortDirection: 'asc',
+    defaultPageSize: 10,
+    getSortValue: (p, field) => {
+      switch (field) {
+        case 'margin':
+          return p.salePrice - p.costPrice;
+        case 'expirationDate':
+          return p.expirationDate ? new Date(p.expirationDate).getTime() : Number.MAX_SAFE_INTEGER;
+        default:
+          return p[field];
+      }
+    },
+  });
 
   // Quick Restock submit
   const handleQuickRestockSubmit = (e: React.FormEvent) => {
@@ -128,11 +195,32 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
     setRestockQty(10);
   };
 
-  // Add Product submit
+  // Add Product submit avec validation stricte
   const handleAddProductSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newProd.name || !newProd.sku) return;
-    onAddProduct(newProd);
+    const validation = validateProductInput(newProd);
+    if (!validation.valid) {
+      setAddFormErrors(validation.errors);
+      return;
+    }
+    setAddFormErrors({});
+
+    const payload: Omit<Product, 'id' | 'updatedAt'> = {
+      ...newProd,
+      name: newProd.name.trim(),
+      sku: newProd.sku.trim().toUpperCase(),
+    };
+    if (newProd.expirationDate?.trim()) {
+      payload.expirationDate = newProd.expirationDate.trim();
+    } else {
+      delete payload.expirationDate;
+    }
+    if (newProd.batchNumber?.trim()) {
+      payload.batchNumber = newProd.batchNumber.trim().toUpperCase();
+    } else {
+      delete payload.batchNumber;
+    }
+    onAddProduct(payload);
     setIsAddModalOpen(false);
     setNewProd({
       sku: '',
@@ -146,30 +234,148 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
       alcoholDegree: 0.0,
       volume: 'Pack 24×33cl',
       isConsigne: false,
+      expirationDate: '',
+      batchNumber: '',
     });
   };
 
-  // Export CSV
+  // Export CSV (Admin-only comprehensive warehouse stocks + consignments + expiry export)
   const handleExportCSV = () => {
-    const headers = ['SKU', 'Nom', 'Catégorie', 'Prix Achat (HTG)', 'Prix Vente HT (HTG)', 'Stock Actuel', 'Seuil Alerte', 'Valeur Stock Achat (HTG)'];
-    const rows = products.map((p) => [
-      p.sku,
-      `"${p.name.replace(/"/g, '""')}"`,
-      p.category,
-      p.costPrice,
-      p.salePrice,
-      p.stock,
-      p.minStockAlert,
-      p.stock * p.costPrice,
-    ]);
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    if (!isAdmin) return;
+
+    const kegDeposit = settings?.kegConsignmentDepositPrice ?? 3000;
+    const crateDeposit = settings?.crateConsignmentDepositPrice ?? 500;
+
+    const escapeCsv = (val: string | number | boolean | undefined) => {
+      const str = String(val ?? '');
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const headers = [
+      'SKU',
+      'Nom du Produit',
+      'Catégorie',
+      'Format / Volume',
+      'Degré Alcool (%)',
+      'Consigné',
+      'Type Consigne',
+      'Caution Consigne Unitaire (HTG)',
+      'Stock Actuel',
+      'Seuil Alerte Effectif',
+      'Seuil Personnalisé',
+      'Qté Réappro Conseillée',
+      'Statut Stock',
+      'Date de Péremption (DLUO)',
+      'Jours Avant Expiration',
+      'Numéro de Lot',
+      'Prix Achat HT (HTG)',
+      'Prix Vente HT (HTG)',
+      'Marge Unitaire (HTG)',
+      'Valeur Stock Achat (HTG)',
+      'Valeur Consignes Entrepôt (HTG)',
+    ];
+
+    let totalConsignedUnitsInStock = 0;
+    let totalConsignedValueInStock = 0;
+    let consignedSkuCount = 0;
+
+    const rows = products.map((p) => {
+      const isKeg = p.volume.toLowerCase().includes('fût') || p.volume.toLowerCase().includes('fut');
+      const consigneType = p.isConsigne ? (isKeg ? 'Fût Consigné' : 'Caisse Consignée') : 'Emballage Perdu';
+      const consigneUnitPrice = p.isConsigne ? (isKeg ? kegDeposit : crateDeposit) : 0;
+      const consigneStockVal = p.stock * consigneUnitPrice;
+
+      if (p.isConsigne) {
+        consignedSkuCount++;
+        totalConsignedUnitsInStock += p.stock;
+        totalConsignedValueInStock += consigneStockVal;
+      }
+
+      const { threshold: effectiveThreshold, isCustom } = getEffectiveStockThreshold(p, globalDefaultThreshold);
+      const stockStatus = p.stock === 0 ? 'Rupture' : p.stock <= effectiveThreshold ? 'Stock Faible' : 'En Stock';
+      const daysLeft = getDaysUntilExpiration(p.expirationDate);
+      const daysLeftLabel = daysLeft === null ? 'N/A' : daysLeft < 0 ? `Expiré (${daysLeft}j)` : `${daysLeft}j`;
+
+      return [
+        escapeCsv(p.sku),
+        escapeCsv(p.name),
+        escapeCsv(p.category),
+        escapeCsv(p.volume || 'Standard'),
+        p.alcoholDegree,
+        p.isConsigne ? 'Oui' : 'Non',
+        escapeCsv(consigneType),
+        consigneUnitPrice,
+        p.stock,
+        effectiveThreshold,
+        isCustom ? 'Oui' : 'Non',
+        p.reorderQuantity,
+        escapeCsv(stockStatus),
+        escapeCsv(p.expirationDate || 'Non définie'),
+        escapeCsv(daysLeftLabel),
+        escapeCsv(p.batchNumber || '-'),
+        p.costPrice,
+        p.salePrice,
+        Number((p.salePrice - p.costPrice).toFixed(2)),
+        Number((p.stock * p.costPrice).toFixed(2)),
+        consigneStockVal,
+      ].join(',');
+    });
+
+    const lines: string[] = [
+      headers.join(','),
+      ...rows,
+      '',
+      'RÉSUMÉ ÉTAT DES STOCKS & CONSIGNES',
+      `Références Totales,${products.length}`,
+      `Unités en Stock Entrepôt,${inventoryStats.totalItems}`,
+      `Valeur Totale Stock (Achat HTG),${inventoryStats.totalCostVal.toFixed(2)}`,
+      `Valeur Marchande Potentielle (Vente HT HTG),${inventoryStats.totalSaleVal.toFixed(2)}`,
+      `Références Consignées,${consignedSkuCount}`,
+      `Unités Consignées en Entrepôt,${totalConsignedUnitsInStock}`,
+      `Valeur Consignes en Entrepôt (HTG),${totalConsignedValueInStock.toFixed(2)}`,
+    ];
+
+    // Add active consigned containers in circulation with CHR customers
+    const activeConsignCustomers = customers.filter((c) => c.activeKegsConsigned > 0);
+    if (activeConsignCustomers.length > 0) {
+      const totalCirculation = activeConsignCustomers.reduce((acc, c) => acc + c.activeKegsConsigned, 0);
+      lines.push(`Fûts / Contenants Consignés en Circulation Clients,${totalCirculation}`);
+      lines.push(`Valeur Cautions Clients en Circulation (HTG),${(totalCirculation * kegDeposit).toFixed(2)}`);
+      lines.push('');
+      lines.push('DÉTAIL DES CONSIGNES EN CIRCULATION PAR CLIENT');
+      lines.push('Établissement,Contact,Type Client,Téléphone,Contenants Consignés Actifs,Valeur Caution Estimée (HTG)');
+      activeConsignCustomers.forEach((c) => {
+        lines.push(
+          [
+            escapeCsv(c.company),
+            escapeCsv(c.name),
+            escapeCsv(c.type),
+            escapeCsv(c.phone),
+            c.activeKegsConsigned,
+            c.activeKegsConsigned * kegDeposit,
+          ].join(',')
+        );
+      });
+    }
+
+    const csvString = '\uFEFF' + lines.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `inventaire_optivente_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `etat_stocks_consignes_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showToast(
+      `Export CSV téléchargé : ${products.length} références (${consignedSkuCount} consignées).`,
+      'success'
+    );
   };
 
   // Toast feedback helper
@@ -184,12 +390,18 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
   const handleOpenEditModal = (product: Product) => {
     setEditingProduct(product);
     setEditFormData({ ...product });
+    setEditFormErrors({});
   };
 
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editFormData) return;
-    if (!editFormData.name.trim() || !editFormData.sku.trim()) return;
+    const validation = validateProductInput(editFormData);
+    if (!validation.valid) {
+      setEditFormErrors(validation.errors);
+      return;
+    }
+    setEditFormErrors({});
 
     const updatedProd: Product = {
       ...editFormData,
@@ -198,6 +410,26 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
       volume: editFormData.volume?.trim() || 'Standard',
       updatedAt: new Date().toISOString(),
     };
+    if (editFormData.expirationDate?.trim()) {
+      updatedProd.expirationDate = editFormData.expirationDate.trim();
+    } else {
+      delete updatedProd.expirationDate;
+    }
+    if (editFormData.batchNumber?.trim()) {
+      updatedProd.batchNumber = editFormData.batchNumber.trim().toUpperCase();
+    } else {
+      delete updatedProd.batchNumber;
+    }
+    if (
+      typeof editFormData.customAlertThreshold === 'number' &&
+      !isNaN(editFormData.customAlertThreshold) &&
+      editFormData.customAlertThreshold > 0
+    ) {
+      updatedProd.customAlertThreshold = editFormData.customAlertThreshold;
+      updatedProd.minStockAlert = editFormData.customAlertThreshold;
+    } else {
+      delete updatedProd.customAlertThreshold;
+    }
 
     onUpdateProduct(updatedProd);
     showToast(`Produit "${updatedProd.name}" modifié avec succès.`, 'success');
@@ -212,6 +444,47 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
     onDeleteProduct(productToDelete.id);
     showToast(`Produit "${name}" supprimé de l'inventaire.`, 'danger');
     setProductToDelete(null);
+  };
+
+  // Custom Threshold Modal Handlers
+  const openThresholdModal = (product: Product) => {
+    const { threshold } = getEffectiveStockThreshold(product, globalDefaultThreshold);
+    setThresholdModalProduct(product);
+    setCustomThresholdInput(threshold);
+  };
+
+  const handleSaveCustomThreshold = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!thresholdModalProduct) return;
+    const safeVal = Math.max(1, Math.round(customThresholdInput || 1));
+    const updated: Product = {
+      ...thresholdModalProduct,
+      customAlertThreshold: safeVal,
+      minStockAlert: safeVal,
+      updatedAt: new Date().toISOString(),
+    };
+    onUpdateProduct(updated);
+    showToast(
+      `Seuil d'alerte personnalisé défini pour "${thresholdModalProduct.name}" : ${safeVal} unités.`,
+      'success'
+    );
+    setThresholdModalProduct(null);
+  };
+
+  const handleResetCustomThreshold = () => {
+    if (!thresholdModalProduct) return;
+    const updated: Product = {
+      ...thresholdModalProduct,
+      minStockAlert: globalDefaultThreshold,
+      updatedAt: new Date().toISOString(),
+    };
+    delete updated.customAlertThreshold;
+    onUpdateProduct(updated);
+    showToast(
+      `Seuil standard (${globalDefaultThreshold} unités) restauré pour "${thresholdModalProduct.name}".`,
+      'info'
+    );
+    setThresholdModalProduct(null);
   };
 
   return (
@@ -435,11 +708,23 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
               >
                 Rupture ({inventoryStats.outOfStockCount})
               </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('expiring')}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 flex items-center gap-1 ${
+                  statusFilter === 'expiring'
+                    ? 'bg-white text-rose-700 shadow-xs font-semibold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <CalendarClock className="w-3 h-3 text-rose-500" />
+                <span>Péremption &le;30j ({inventoryStats.expiringSoonCount})</span>
+              </button>
             </div>
           </div>
 
           {/* Primary Action Buttons */}
-          <div className="flex items-center gap-2 self-start lg:self-auto">
+          <div className="flex items-center gap-2 self-start lg:self-auto flex-wrap">
             <button
               type="button"
               onClick={() => setShowMovementsModal(true)}
@@ -448,14 +733,17 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
               <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
               <span>Mouvements récents</span>
             </button>
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5"
-            >
-              <Download className="w-3.5 h-3.5 text-slate-500" />
-              <span>Export CSV</span>
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={handleExportCSV}
+                title="Télécharger l'état complet des stocks et consignes en format CSV (Réservé Admin)"
+                className="px-3 py-1.5 text-xs font-semibold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Exporter en CSV</span>
+              </button>
+            )}
             {isAdmin ? (
               <button
                 type="button"
@@ -482,32 +770,45 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-medium">
               <tr>
-                <th className="py-3 px-4">Référence SKU & Produit</th>
-                <th className="py-3 px-4">Catégorie</th>
+                <SortableHeader label="Référence SKU & Produit" field="name" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                <SortableHeader label="Catégorie" field="category" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
                 {isAdmin ? (
                   <>
-                    <th className="py-3 px-4 text-right">Prix Achat HT</th>
-                    <th className="py-3 px-4 text-right">Prix Vente HT</th>
-                    <th className="py-3 px-4 text-right">Marge Brute</th>
+                    <SortableHeader label="Prix Achat HT" field="costPrice" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
+                    <SortableHeader label="Prix Vente HT" field="salePrice" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
+                    <SortableHeader label="Marge Brute" field="margin" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
                   </>
                 ) : (
                   <>
-                    <th className="py-3 px-4 text-right">Prix Vente HT</th>
+                    <SortableHeader label="Prix Vente HT" field="salePrice" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
                     <th className="py-3 px-4 text-right">Format</th>
                     <th className="py-3 px-4 text-right">Degré Alcool</th>
                   </>
                 )}
-                <th className="py-3 px-4 text-right">Stock Actuel</th>
+                <SortableHeader label="Stock Actuel" field="stock" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
+                <SortableHeader label="Péremption (DLUO)" field="expirationDate" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="center" />
                 <th className="py-3 px-4 text-center">Statut</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredProducts.map((p) => {
+              {paginatedProducts.map((p) => {
                 const margin = p.salePrice - p.costPrice;
                 const marginPct = Math.round((margin / p.salePrice) * 100);
+                const { threshold: effectiveThreshold, isCustom: isCustomThreshold } = getEffectiveStockThreshold(
+                  p,
+                  globalDefaultThreshold
+                );
                 const isOutOfStock = p.stock === 0;
-                const isLowStock = !isOutOfStock && p.stock <= p.minStockAlert;
+                const isLowStock = !isOutOfStock && p.stock <= effectiveThreshold;
+                const daysUntilExp = getDaysUntilExpiration(p.expirationDate);
+                const expFormatted = p.expirationDate
+                  ? new Date(p.expirationDate + (p.expirationDate.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('fr-FR', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: '2-digit',
+                    })
+                  : null;
 
                 return (
                   <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">
@@ -521,7 +822,7 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono mt-0.5">
+                        <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono mt-0.5 flex-wrap">
                           <span>{p.sku}</span>
                           <span>·</span>
                           <span>{p.volume || 'Standard'}</span>
@@ -529,6 +830,12 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
                           <span className={p.alcoholDegree > 0 ? 'text-amber-700 font-medium' : 'text-emerald-700'}>
                             {p.alcoholDegree > 0 ? `${p.alcoholDegree}% Vol` : 'Sans Alcool (0.0%)'}
                           </span>
+                          {p.batchNumber && (
+                            <>
+                              <span>·</span>
+                              <span className="text-slate-500">{p.batchNumber}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -575,10 +882,63 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
                       >
                         {p.stock}
                       </span>
-                      <span className="text-slate-400 text-[11px] block">
-                        seuil min : {p.minStockAlert}
-                      </span>
+                      <div className="mt-0.5 flex justify-end">
+                        {isAdmin ? (
+                          <button
+                            type="button"
+                            onClick={() => openThresholdModal(p)}
+                            title={
+                              isCustomThreshold
+                                ? `Seuil personnalisé actif (${effectiveThreshold} u.) — Cliquer pour ajuster`
+                                : `Seuil standard (${effectiveThreshold} u.) — Cliquer pour définir un seuil personnalisé`
+                            }
+                            className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+                              isCustomThreshold
+                                ? 'bg-indigo-50 text-indigo-800 border-indigo-200 hover:bg-indigo-100 font-semibold'
+                                : 'text-slate-500 border-transparent hover:border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            {isCustomThreshold && <BellRing className="w-2.5 h-2.5 text-indigo-600" />}
+                            <span>
+                              {isCustomThreshold
+                                ? `Seuil perso : ${effectiveThreshold}`
+                                : `seuil min : ${effectiveThreshold}`}
+                            </span>
+                          </button>
+                        ) : (
+                          <span className="text-slate-400 text-[11px] block">
+                            {isCustomThreshold
+                              ? `seuil perso : ${effectiveThreshold}`
+                              : `seuil min : ${effectiveThreshold}`}
+                          </span>
+                        )}
+                      </div>
                     </td>
+
+                    <td className="py-3 px-4 text-center whitespace-nowrap">
+                      {expFormatted && daysUntilExp !== null ? (
+                        daysUntilExp < 0 ? (
+                          <div className="inline-flex flex-col items-center">
+                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded font-mono">
+                              Expiré ({Math.abs(daysUntilExp)}j)
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono mt-0.5">{expFormatted}</span>
+                          </div>
+                        ) : daysUntilExp <= 30 ? (
+                          <div className="inline-flex flex-col items-center">
+                            <span className="text-[10px] font-bold text-orange-700 bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded font-mono">
+                              J-{daysUntilExp}
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-mono mt-0.5">{expFormatted}</span>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] font-mono text-slate-600">{expFormatted}</span>
+                        )
+                      ) : (
+                        <span className="text-[11px] text-slate-400 italic">Non définie</span>
+                      )}
+                    </td>
+
                     <td className="py-3 px-4 text-center">
                       {isOutOfStock ? (
                         <span className="inline-block text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded">
@@ -612,6 +972,20 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
 
                           <button
                             type="button"
+                            onClick={() => openThresholdModal(p)}
+                            title="Définir un seuil d'alerte personnalisé pour ce produit"
+                            className={`px-2 py-1 text-[11px] font-medium rounded border transition-colors whitespace-nowrap flex items-center gap-1 shadow-2xs cursor-pointer ${
+                              isCustomThreshold
+                                ? 'text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border-indigo-200'
+                                : 'text-amber-800 bg-amber-50 hover:bg-amber-100 border-amber-200'
+                            }`}
+                          >
+                            <SlidersHorizontal className="w-3 h-3" />
+                            <span>Seuil</span>
+                          </button>
+
+                          <button
+                            type="button"
                             onClick={() => handleOpenEditModal(p)}
                             title="Modifier la fiche produit"
                             className="px-2 py-1 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 transition-colors whitespace-nowrap flex items-center gap-1 shadow-2xs cursor-pointer"
@@ -640,9 +1014,9 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
                   </tr>
                 );
               })}
-              {filteredProducts.length === 0 && (
+              {paginatedProducts.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-10 text-center text-slate-400">
+                  <td colSpan={9} className="py-10 text-center text-slate-400">
                     Aucun article ne correspond à vos filtres actuels.
                   </td>
                 </tr>
@@ -650,6 +1024,17 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Barre de pagination du tableau stocks */}
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          totalItems={totalItems}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          itemLabel="produits"
+        />
       </div>
 
       {/* Restock Modal */}
@@ -742,6 +1127,14 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
             </p>
 
             <form onSubmit={handleAddProductSubmit} className="space-y-4">
+              {Object.keys(addFormErrors).length > 0 && (
+                <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs space-y-1">
+                  <strong className="font-bold block">Veuillez corriger les champs suivants :</strong>
+                  {Object.values(addFormErrors).map((err, idx) => (
+                    <div key={idx}>• {err}</div>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">
@@ -903,6 +1296,32 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Date de Péremption (DLUO)
+                  </label>
+                  <input
+                    type="date"
+                    value={newProd.expirationDate || ''}
+                    onChange={(e) => setNewProd({ ...newProd, expirationDate: e.target.value })}
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-mono focus:outline-none focus:border-slate-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Numéro de Lot (Optionnel)
+                  </label>
+                  <input
+                    type="text"
+                    value={newProd.batchNumber || ''}
+                    onChange={(e) => setNewProd({ ...newProd, batchNumber: e.target.value.toUpperCase() })}
+                    placeholder="ex: LOT-2026-A"
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-mono focus:outline-none focus:border-slate-500"
+                  />
+                </div>
+              </div>
+
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
@@ -1012,6 +1431,14 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
             </div>
 
             <form onSubmit={handleEditSubmit} className="space-y-4">
+              {Object.keys(editFormErrors).length > 0 && (
+                <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs space-y-1">
+                  <strong className="font-bold block">Veuillez corriger les champs suivants :</strong>
+                  {Object.values(editFormErrors).map((err, idx) => (
+                    <div key={idx}>• {err}</div>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">
@@ -1186,6 +1613,80 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Date de Péremption (DLUO)
+                  </label>
+                  <input
+                    type="date"
+                    value={editFormData.expirationDate || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, expirationDate: e.target.value })}
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-mono focus:outline-none focus:border-slate-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Numéro de Lot
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.batchNumber || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, batchNumber: e.target.value.toUpperCase() })}
+                    placeholder="ex: LOT-2026-A"
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-mono focus:outline-none focus:border-slate-500"
+                  />
+                </div>
+              </div>
+
+              {/* Optional Custom Alert Threshold inside Edit Modal */}
+              <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-indigo-950 flex items-center gap-1.5">
+                    <BellRing className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Seuil d'Alerte Personnalisé (Optionnel)</span>
+                  </label>
+                  {editFormData.customAlertThreshold ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const copy = { ...editFormData };
+                        delete copy.customAlertThreshold;
+                        setEditFormData(copy);
+                      }}
+                      className="text-[11px] font-medium text-indigo-700 hover:underline cursor-pointer"
+                    >
+                      Réinitialiser (standard {globalDefaultThreshold} u.)
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-indigo-700">Prioritaire sur le seuil global</span>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  max="9999"
+                  value={editFormData.customAlertThreshold ?? ''}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (!raw) {
+                      const copy = { ...editFormData };
+                      delete copy.customAlertThreshold;
+                      setEditFormData(copy);
+                    } else {
+                      const val = Math.max(1, parseInt(raw) || 1);
+                      setEditFormData({
+                        ...editFormData,
+                        customAlertThreshold: val,
+                        minStockAlert: val,
+                      });
+                    }
+                  }}
+                  placeholder={`Par défaut : ${globalDefaultThreshold} unités`}
+                  className="w-full px-3 py-1.5 text-xs bg-white border border-indigo-200 rounded-lg font-mono focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
@@ -1210,75 +1711,154 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
         </div>
       )}
 
-      {/* Delete Product Confirmation Modal */}
-      {productToDelete && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2.5 rounded-full bg-red-100 text-red-600 shrink-0">
-                <Trash2 className="w-6 h-6" />
+      {/* Confirmation unifiée avant suppression d'un produit */}
+      <ConfirmDialog
+        isOpen={Boolean(productToDelete)}
+        title="Supprimer ce produit ?"
+        description={
+          productToDelete && productToDelete.stock > 0
+            ? `Attention : ce produit possède encore ${productToDelete.stock} unité(s) en stock dans votre entrepôt. Cette suppression est irréversible.`
+            : "Cette référence sera retirée définitivement de l'inventaire. Cette opération est irréversible."
+        }
+        itemDetail={
+          productToDelete
+            ? `${productToDelete.name} (${productToDelete.sku}) · ${productToDelete.category}`
+            : undefined
+        }
+        confirmLabel="Supprimer définitivement"
+        tone="danger"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setProductToDelete(null)}
+      />
+
+      {/* Custom Per-Product Alert Threshold Modal */}
+      {thresholdModalProduct && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full p-6">
+            <div className="flex items-start justify-between pb-3 border-b border-slate-200">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-indigo-100 text-indigo-700 shrink-0">
+                  <SlidersHorizontal className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Seuil d'Alerte Personnalisé
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {thresholdModalProduct.name} ({thresholdModalProduct.sku})
+                  </p>
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setThresholdModalProduct(null)}
+                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveCustomThreshold} className="mt-4 space-y-4">
+              {/* Current status summary */}
+              <div className="grid grid-cols-2 gap-2.5 text-xs">
+                <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                  <span className="text-slate-500 block">Stock Actuel</span>
+                  <span className="text-base font-mono font-bold text-slate-900">
+                    {thresholdModalProduct.stock} unités
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                  <span className="text-slate-500 block">Seuil Global Standard</span>
+                  <span className="text-base font-mono font-bold text-slate-700">
+                    {globalDefaultThreshold} unités
+                  </span>
+                </div>
+              </div>
+
+              {/* Live alert simulation */}
+              {thresholdModalProduct.stock <= customThresholdInput ? (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-amber-950 text-xs flex items-start gap-2">
+                  <BellRing className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="font-bold block">ALERTE DÉCLENCHÉE IMMÉDIATEMENT</strong>
+                    <span className="text-[11px] text-amber-800">
+                      Le stock actuel ({thresholdModalProduct.stock} u.) est &le; au seuil défini ({customThresholdInput} u.). Une notification visuelle s'affichera dans le tableau de bord.
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-start gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="font-bold block">Stock conforme à ce seuil</strong>
+                    <span className="text-[11px] text-emerald-800">
+                      Une alerte visuelle apparaîtra dès que le stock descendra à {customThresholdInput} unités ou moins.
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  Supprimer ce produit ?
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Cette référence sera retirée définitivement de l'inventaire
-                </p>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Définir le seuil personnalisé pour ce produit (unités)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="9999"
+                  value={customThresholdInput}
+                  onChange={(e) => setCustomThresholdInput(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-full px-3 py-2 text-sm font-mono font-bold bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
+                  required
+                />
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  <span className="text-[11px] text-slate-500 mr-1">Raccourcis :</span>
+                  {[5, 10, 15, 25, 40, 60].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setCustomThresholdInput(val)}
+                      className={`px-2 py-1 rounded text-[11px] font-mono font-bold transition-colors cursor-pointer ${
+                        customThresholdInput === val
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {val} u.
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg mb-4 text-xs space-y-1.5">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Désignation :</span>
-                <span className="font-semibold text-slate-900 text-right">{productToDelete.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Référence SKU :</span>
-                <span className="font-mono text-slate-800">{productToDelete.sku}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Catégorie :</span>
-                <span className="text-slate-800">{productToDelete.category}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Stock restant :</span>
-                <span className={`font-mono font-bold ${productToDelete.stock > 0 ? 'text-amber-700' : 'text-slate-700'}`}>
-                  {productToDelete.stock} unités
-                </span>
-              </div>
-            </div>
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-100 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleResetCustomThreshold}
+                  className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Supprimer le seuil personnalisé et revenir au seuil global des paramètres"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Utiliser standard ({globalDefaultThreshold} u.)</span>
+                </button>
 
-            {productToDelete.stock > 0 && (
-              <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg text-xs flex items-start gap-2 mb-4">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <span>
-                  <strong>Attention :</strong> Ce produit possède encore <strong>{productToDelete.stock} unité(s)</strong> en stock dans votre entrepôt.
-                </span>
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setThresholdModalProduct(null)}
+                    className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    <span>Enregistrer Seuil</span>
+                  </button>
+                </div>
               </div>
-            )}
-
-            <p className="text-xs text-slate-500 mb-5">
-              Confirmez-vous la suppression de cette référence ? Cette opération est irréversible.
-            </p>
-
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setProductToDelete(null)}
-                className="px-3.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="px-4 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Supprimer définitivement</span>
-              </button>
-            </div>
+            </form>
           </div>
         </div>
       )}

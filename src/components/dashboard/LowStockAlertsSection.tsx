@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Product, AppSettings } from '../../types';
+import { Product, AppSettings, getEffectiveStockThreshold } from '../../types';
 import {
   AlertTriangle,
   AlertOctagon,
@@ -16,6 +16,7 @@ import {
   SlidersHorizontal,
   ChevronRight,
   Sparkles,
+  BellRing,
 } from 'lucide-react';
 import { formatHTG } from '../../utils/formatters';
 
@@ -55,11 +56,11 @@ export const LowStockAlertsSection: React.FC<LowStockAlertsSectionProps> = ({
   const [showThresholdModal, setShowThresholdModal] = useState(false);
   const [tempThreshold, setTempThreshold] = useState<number>(threshold);
 
-  // Products whose stock level is less than or equal to the threshold defined in the settings
-  // (Also includes any product whose stock is below its individual minStockAlert if set)
+  // Products whose stock level is less than or equal to their effective threshold
+  // (Per-product customAlertThreshold takes priority over minStockAlert & global default)
   const alertingProducts = useMemo(() => {
     return products.filter((p) => {
-      const effectiveMin = p.minStockAlert > 0 ? Math.max(p.minStockAlert, threshold) : threshold;
+      const { threshold: effectiveMin } = getEffectiveStockThreshold(p, threshold);
       return p.stock <= effectiveMin;
     });
   }, [products, threshold]);
@@ -181,7 +182,10 @@ export const LowStockAlertsSection: React.FC<LowStockAlertsSectionProps> = ({
   };
 
   return (
-    <section className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+    <section
+      id="low-stock-alerts-section"
+      className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs"
+    >
       {/* Header Banner */}
       <div className="p-5 border-b border-slate-200 bg-linear-to-r from-amber-50/60 via-white to-red-50/40">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -406,9 +410,8 @@ export const LowStockAlertsSection: React.FC<LowStockAlertsSectionProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredAlerts.map((product) => {
               const isOut = product.stock === 0;
-              const productThreshold = product.minStockAlert > 0
-                ? Math.max(product.minStockAlert, threshold)
-                : threshold;
+              const { threshold: productThreshold, isCustom: isCustomThreshold } =
+                getEffectiveStockThreshold(product, threshold);
               const deficit = Math.max(0, productThreshold - product.stock);
               const percentageOfSafeStock = productThreshold > 0
                 ? Math.min(100, Math.round((product.stock / productThreshold) * 100))
@@ -437,6 +440,13 @@ export const LowStockAlertsSection: React.FC<LowStockAlertsSectionProps> = ({
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-amber-600 text-white shadow-xs">
                             <AlertTriangle className="w-3 h-3" />
                             Stock Faible
+                          </span>
+                        )}
+
+                        {isCustomThreshold && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-800 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
+                            <BellRing className="w-2.5 h-2.5 text-indigo-600" />
+                            Seuil Perso : {productThreshold} u.
                           </span>
                         )}
 
@@ -508,8 +518,10 @@ export const LowStockAlertsSection: React.FC<LowStockAlertsSectionProps> = ({
                       </div>
 
                       <div className="p-2 bg-white rounded-lg border border-slate-200/80">
-                        <span className="text-[10px] text-slate-500 block">Seuil d'Alerte</span>
-                        <span className="font-mono text-sm font-bold text-slate-800 block mt-0.5 tabular-nums">
+                        <span className="text-[10px] text-slate-500 block">
+                          {isCustomThreshold ? 'Seuil Personnalisé' : "Seuil d'Alerte"}
+                        </span>
+                        <span className={`font-mono text-sm font-bold block mt-0.5 tabular-nums ${isCustomThreshold ? 'text-indigo-700' : 'text-slate-800'}`}>
                           {productThreshold} unités
                         </span>
                       </div>
@@ -672,8 +684,14 @@ export const LowStockAlertsSection: React.FC<LowStockAlertsSectionProps> = ({
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Seuil Paramètres :</span>
-                  <span className="font-mono font-bold text-slate-800">{threshold} unités</span>
+                  <span className="text-slate-500">
+                    {getEffectiveStockThreshold(restockingProduct, threshold).isCustom
+                      ? 'Seuil Personnalisé :'
+                      : 'Seuil Paramètres :'}
+                  </span>
+                  <span className="font-mono font-bold text-slate-800">
+                    {getEffectiveStockThreshold(restockingProduct, threshold).threshold} unités
+                  </span>
                 </div>
               </div>
 
@@ -703,12 +721,17 @@ export const LowStockAlertsSection: React.FC<LowStockAlertsSectionProps> = ({
               </div>
 
               {/* Simulation of future stock level */}
-              <div className="p-2.5 bg-emerald-50 rounded-lg border border-emerald-200 text-xs flex items-center justify-between">
-                <span className="text-emerald-900 font-medium">Nouveau stock après livraison :</span>
-                <span className="font-mono font-bold text-emerald-800 text-sm">
-                  {restockingProduct.stock + restockQty} unités ({Math.round(((restockingProduct.stock + restockQty) / threshold) * 100)}% du seuil)
-                </span>
-              </div>
+              {(() => {
+                const effT = getEffectiveStockThreshold(restockingProduct, threshold).threshold;
+                return (
+                  <div className="p-2.5 bg-emerald-50 rounded-lg border border-emerald-200 text-xs flex items-center justify-between">
+                    <span className="text-emerald-900 font-medium">Nouveau stock après livraison :</span>
+                    <span className="font-mono font-bold text-emerald-800 text-sm">
+                      {restockingProduct.stock + restockQty} unités ({Math.round(((restockingProduct.stock + restockQty) / effT) * 100)}% du seuil)
+                    </span>
+                  </div>
+                );
+              })()}
 
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
@@ -762,19 +785,22 @@ export const LowStockAlertsSection: React.FC<LowStockAlertsSectionProps> = ({
               </p>
 
               <div className="max-h-48 overflow-y-auto space-y-1.5 p-2 bg-slate-50 rounded-lg border border-slate-200 divide-y divide-slate-100">
-                {alertingProducts.map((p) => (
-                  <div key={p.id} className="pt-1.5 first:pt-0 flex items-center justify-between">
-                    <div>
-                      <span className="font-semibold text-slate-800 block">{p.name}</span>
-                      <span className="text-slate-400 text-[11px]">
-                        Stock : {p.stock} / Seuil : {threshold}
+                {alertingProducts.map((p) => {
+                  const { threshold: pEffThreshold, isCustom: pIsCustom } = getEffectiveStockThreshold(p, threshold);
+                  return (
+                    <div key={p.id} className="pt-1.5 first:pt-0 flex items-center justify-between">
+                      <div>
+                        <span className="font-semibold text-slate-800 block">{p.name}</span>
+                        <span className="text-slate-400 text-[11px]">
+                          Stock : {p.stock} / Seuil {pIsCustom ? 'Perso' : 'Std'} : {pEffThreshold}
+                        </span>
+                      </div>
+                      <span className="font-mono font-bold text-emerald-700">
+                        +{p.reorderQuantity || 24} unités
                       </span>
                     </div>
-                    <span className="font-mono font-bold text-emerald-700">
-                      +{p.reorderQuantity || 24} unités
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="flex justify-between items-center p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-900 font-medium">

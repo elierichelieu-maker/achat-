@@ -81,6 +81,12 @@ export const INITIAL_SELLERS: Seller[] = [
   },
 ];
 
+const relativeDateISO = (daysFromNow: number): string => {
+  const d = new Date();
+  d.setDate(d.getDate() + daysFromNow);
+  return d.toISOString().split('T')[0];
+};
+
 export const INITIAL_PRODUCTS: Product[] = [
   // --- BIÈRES & CIDRES (ALCOOLISÉES) ---
   {
@@ -96,6 +102,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 6.2,
     volume: 'Fût 30L',
     isConsigne: true,
+    expirationDate: relativeDateISO(18), // Expire dans 18 jours (alerte <= 30j)
+    batchNumber: 'LOT-BL30-26A',
     updatedAt: '2026-10-21T10:30:00Z',
   },
   {
@@ -111,6 +119,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 5.8,
     volume: 'Carton 24×33cl',
     isConsigne: false,
+    expirationDate: relativeDateISO(110),
+    batchNumber: 'LOT-IPA24-09',
     updatedAt: '2026-10-22T08:15:00Z',
   },
   {
@@ -126,6 +136,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 4.8,
     volume: 'Fût 20L',
     isConsigne: true,
+    expirationDate: relativeDateISO(5), // Urgence critique <= 7 jours !
+    batchNumber: 'LOT-FIPA-20C',
     updatedAt: '2026-10-22T09:40:00Z',
   },
   {
@@ -141,6 +153,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 5.0,
     volume: 'Carton 6×75cl',
     isConsigne: false,
+    expirationDate: relativeDateISO(185),
+    batchNumber: 'LOT-CID-42B',
     updatedAt: '2026-10-20T14:00:00Z',
   },
 
@@ -158,6 +172,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 0.0,
     volume: 'Pack 24×33cl',
     isConsigne: false,
+    expirationDate: relativeDateISO(210),
+    batchNumber: 'LOT-COL-881',
     updatedAt: '2026-10-21T17:20:00Z',
   },
   {
@@ -173,6 +189,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 0.0,
     volume: 'Caisse 12×75cl',
     isConsigne: true,
+    expirationDate: relativeDateISO(12), // Expire dans 12 jours
+    batchNumber: 'LOT-LIMO-14',
     updatedAt: '2026-10-22T07:30:00Z',
   },
   {
@@ -188,6 +206,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 0.0,
     volume: 'Pack 24×33cl',
     isConsigne: false,
+    expirationDate: relativeDateISO(25), // Expire dans 25 jours
+    batchNumber: 'LOT-YUZU-05',
     updatedAt: '2026-10-19T11:00:00Z',
   },
   {
@@ -203,6 +223,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 0.0,
     volume: 'Pack 24×25cl',
     isConsigne: false,
+    expirationDate: relativeDateISO(140),
+    batchNumber: 'LOT-NRJ-19',
     updatedAt: '2026-10-22T06:00:00Z',
   },
 
@@ -220,6 +242,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 0.0,
     volume: 'Caisse 12×1L',
     isConsigne: true,
+    expirationDate: relativeDateISO(340),
+    batchNumber: 'LOT-EAU-902',
     updatedAt: '2026-10-20T12:00:00Z',
   },
   {
@@ -235,6 +259,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 0.0,
     volume: 'Pack 24×20cl',
     isConsigne: false,
+    expirationDate: relativeDateISO(95),
+    batchNumber: 'LOT-TON-31',
     updatedAt: '2026-10-21T09:00:00Z',
   },
   {
@@ -250,6 +276,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 0.0,
     volume: 'Pack 24×33cl',
     isConsigne: false,
+    expirationDate: relativeDateISO(4), // Critique <= 7 jours !
+    batchNumber: 'LOT-GIN-77',
     updatedAt: '2026-10-22T08:00:00Z',
   },
 
@@ -267,6 +295,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 12.5,
     volume: 'Carton 6×75cl',
     isConsigne: false,
+    expirationDate: relativeDateISO(720),
+    batchNumber: 'LOT-CHM-2024',
     updatedAt: '2026-10-18T16:10:00Z',
   },
   {
@@ -282,6 +312,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 11.5,
     volume: 'Carton 6×75cl',
     isConsigne: false,
+    expirationDate: relativeDateISO(29), // Expire dans 29 jours
+    batchNumber: 'LOT-PRS-112',
     updatedAt: '2026-10-19T15:20:00Z',
   },
   {
@@ -297,6 +329,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 13.0,
     volume: 'Carton 6×75cl',
     isConsigne: false,
+    expirationDate: relativeDateISO(365),
+    batchNumber: 'LOT-ROS-26',
     updatedAt: '2026-10-20T11:00:00Z',
   },
 
@@ -314,6 +348,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 43.0,
     volume: 'Bouteille 70cl',
     isConsigne: false,
+    expirationDate: relativeDateISO(900),
+    batchNumber: 'LOT-GIN-43',
     updatedAt: '2026-10-21T14:15:00Z',
   },
   {
@@ -329,6 +365,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 42.0,
     volume: 'Bouteille 70cl',
     isConsigne: false,
+    expirationDate: relativeDateISO(1095),
+    batchNumber: 'LOT-RHM-XO',
     updatedAt: '2026-10-22T09:10:00Z',
   },
   {
@@ -344,6 +382,8 @@ export const INITIAL_PRODUCTS: Product[] = [
     alcoholDegree: 46.0,
     volume: 'Bouteille 70cl',
     isConsigne: false,
+    expirationDate: relativeDateISO(1095),
+    batchNumber: 'LOT-WHS-46',
     updatedAt: '2026-10-20T10:00:00Z',
   },
 ];

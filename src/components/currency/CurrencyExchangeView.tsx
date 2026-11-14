@@ -1,6 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { ExchangeRateConfig, ExchangeTransaction, Seller } from '../../types';
-import { formatHTG, formatUSD, formatDOP } from '../../utils/formatters';
+import { formatHTG, formatUSD, formatDOP, formatDateTimeFR } from '../../utils/formatters';
+import { useTableControls } from '../../hooks/useTableControls';
+import { SortableHeader } from '../common/SortableHeader';
+import { TablePagination } from '../common/TablePagination';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 import {
   ArrowLeftRight,
   DollarSign,
@@ -61,6 +65,7 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
   // Modals state
   const [isRatesModalOpen, setIsRatesModalOpen] = useState(false);
   const [isAddTransactionModalOpen, setIsAddTransactionModalOpen] = useState(false);
+  const [txToDelete, setTxToDelete] = useState<ExchangeTransaction | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
 
   // Filter & Search in Register
@@ -319,6 +324,27 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
       return true;
     });
   }, [transactions, searchQuery, typeFilter]);
+
+  // Tri multi-colonnes et pagination du registre de change
+  type TxSortField = 'date' | 'type' | 'amountFrom' | 'rateApplied' | 'amountTo' | 'operator';
+  const {
+    sortField,
+    sortDirection,
+    toggleSort,
+    page,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedTransactions,
+    setPage,
+    setPageSize,
+  } = useTableControls<ExchangeTransaction, TxSortField>({
+    items: filteredTransactions,
+    defaultSortField: 'date',
+    defaultSortDirection: 'desc',
+    defaultPageSize: 10,
+    getSortValue: (tx, field) => (field === 'date' ? new Date(tx.date).getTime() : tx[field]),
+  });
 
   // Totals in transactions
   const totals = useMemo(() => {
@@ -1022,26 +1048,26 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50/80 text-slate-600 font-semibold border-b border-slate-200">
                 <tr>
-                  <th className="py-2.5 px-3">Date & Heure</th>
-                  <th className="py-2.5 px-3">Opération</th>
-                  <th className="py-2.5 px-3 text-right">Montant Départ</th>
-                  <th className="py-2.5 px-3 text-right">Taux Appliqué</th>
-                  <th className="py-2.5 px-3 text-right">Contre-valeur (HTG)</th>
+                  <SortableHeader label="Date & Heure" field="date" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                  <SortableHeader label="Opération" field="type" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                  <SortableHeader label="Montant Départ" field="amountFrom" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
+                  <SortableHeader label="Taux Appliqué" field="rateApplied" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
+                  <SortableHeader label="Contre-valeur (HTG)" field="amountTo" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
                   <th className="py-2.5 px-3">Client / Bénéficiaire</th>
-                  <th className="py-2.5 px-3">Opérateur</th>
+                  <SortableHeader label="Opérateur" field="operator" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
                   <th className="py-2.5 px-3">Notes</th>
                   <th className="py-2.5 px-3 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredTransactions.length === 0 ? (
+                {paginatedTransactions.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="py-8 text-center text-slate-400">
                       Aucune transaction de change trouvée pour cette sélection.
                     </td>
                   </tr>
                 ) : (
-                  filteredTransactions.map((tx) => (
+                  paginatedTransactions.map((tx) => (
                     <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500 whitespace-nowrap">
                         {new Date(tx.date).toLocaleDateString('fr-FR', {
@@ -1090,14 +1116,9 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                       <td className="py-2.5 px-3 text-center whitespace-nowrap">
                         <button
                           type="button"
-                          onClick={() => {
-                            if (window.confirm('Voulez-vous supprimer cette écriture de change ?')) {
-                              onDeleteTransaction(tx.id);
-                              showNotice('Transaction supprimée');
-                            }
-                          }}
-                          className="p-1 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                          title="Supprimer"
+                          onClick={() => setTxToDelete(tx)}
+                          className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                          title="Supprimer cette écriture"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1107,6 +1128,16 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                 )}
               </tbody>
             </table>
+
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={totalItems}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              itemLabel="opérations"
+            />
           </div>
         </div>
       )}
@@ -1496,6 +1527,27 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
           </div>
         </div>
       )}
+      {/* Confirmation avant suppression d'une opération de change */}
+      <ConfirmDialog
+        isOpen={Boolean(txToDelete)}
+        title="Supprimer cette opération de change ?"
+        description="Cette écriture sera retirée définitivement du registre des changes."
+        itemDetail={
+          txToDelete
+            ? `${txToDelete.fromCurrency} ➔ ${txToDelete.toCurrency} · ${formatAmount(txToDelete.amountFrom, txToDelete.fromCurrency)} (${formatDateTimeFR(txToDelete.date)})`
+            : undefined
+        }
+        confirmLabel="Supprimer l'écriture"
+        tone="danger"
+        onConfirm={() => {
+          if (txToDelete) {
+            onDeleteTransaction(txToDelete.id);
+            showNotice('Transaction supprimée du registre.');
+            setTxToDelete(null);
+          }
+        }}
+        onCancel={() => setTxToDelete(null)}
+      />
     </div>
   );
 };

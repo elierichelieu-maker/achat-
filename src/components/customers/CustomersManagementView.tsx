@@ -19,6 +19,9 @@ import {
   ShoppingBag,
 } from 'lucide-react';
 import { formatHTG } from '../../utils/formatters';
+import { validateCustomerInput } from '../../utils/validators';
+import { useTableControls } from '../../hooks/useTableControls';
+import { TablePagination } from '../common/TablePagination';
 
 interface CustomersManagementViewProps {
   customers: Customer[];
@@ -37,6 +40,7 @@ export const CustomersManagementView: React.FC<CustomersManagementViewProps> = (
   const [selectedType, setSelectedType] = useState<string>('all');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   // New Customer Form State
   const [newCust, setNewCust] = useState<Omit<Customer, 'id' | 'createdAt' | 'totalSpent'>>({
@@ -68,6 +72,27 @@ export const CustomersManagementView: React.FC<CustomersManagementViewProps> = (
     });
   }, [customers, search, selectedType]);
 
+  // Tri et pagination de la grille clients
+  type CustomerSortField = 'company' | 'totalSpent' | 'activeKegsConsigned' | 'creditLimit';
+  const {
+    sortField,
+    sortDirection,
+    setSortField,
+    setSortDirection,
+    page,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedCustomers,
+    setPage,
+    setPageSize,
+  } = useTableControls<Customer, CustomerSortField>({
+    items: filteredCustomers,
+    defaultSortField: 'totalSpent',
+    defaultSortDirection: 'desc',
+    defaultPageSize: 10,
+  });
+
   // High-level aggregates
   const customerStats = useMemo(() => {
     const totalCount = customers.length;
@@ -79,8 +104,18 @@ export const CustomersManagementView: React.FC<CustomersManagementViewProps> = (
 
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCust.name || !newCust.company) return;
-    onAddCustomer(newCust);
+    const validation = validateCustomerInput(newCust);
+    if (!validation.valid) {
+      setFormErrors(validation.errors);
+      return;
+    }
+    setFormErrors({});
+
+    onAddCustomer({
+      ...newCust,
+      name: newCust.name.trim(),
+      company: newCust.company.trim(),
+    });
     setIsAddModalOpen(false);
     setNewCust({
       name: '',
@@ -178,22 +213,41 @@ export const CustomersManagementView: React.FC<CustomersManagementViewProps> = (
           ))}
         </div>
 
-        {/* Search input */}
-        <div className="relative min-w-[220px]">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher établissement, contact, ville..."
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-400"
-          />
+        {/* Tri & Search input */}
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={`${sortField}_${sortDirection}`}
+            onChange={(e) => {
+              const [field, dir] = e.target.value.split('_') as [CustomerSortField, 'asc' | 'desc'];
+              setSortField(field);
+              setSortDirection(dir);
+              setPage(1);
+            }}
+            className="py-1.5 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:border-slate-400"
+            aria-label="Trier les clients"
+          >
+            <option value="totalSpent_desc">CA le plus élevé</option>
+            <option value="company_asc">Établissement (A–Z)</option>
+            <option value="activeKegsConsigned_desc">Fûts consignés (décroissant)</option>
+            <option value="creditLimit_desc">Plafond crédit (décroissant)</option>
+          </select>
+
+          <div className="relative min-w-[220px]">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher établissement, contact, ville..."
+              className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-slate-400"
+            />
+          </div>
         </div>
       </div>
 
       {/* Customer Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredCustomers.map((cust) => {
+        {paginatedCustomers.map((cust) => {
           return (
             <div
               key={cust.id}
@@ -305,9 +359,23 @@ export const CustomersManagementView: React.FC<CustomersManagementViewProps> = (
         })}
       </div>
 
-      {filteredCustomers.length === 0 && (
+      {paginatedCustomers.length === 0 && (
         <div className="p-12 text-center text-slate-400 bg-white rounded-xl border border-slate-200 text-xs">
           Aucun établissement trouvé pour cette recherche.
+        </div>
+      )}
+
+      {totalItems > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            totalItems={totalItems}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            itemLabel="clients"
+          />
         </div>
       )}
 
@@ -334,6 +402,14 @@ export const CustomersManagementView: React.FC<CustomersManagementViewProps> = (
             </div>
 
             <form onSubmit={handleCreateSubmit} className="mt-4 space-y-3.5 text-xs">
+              {Object.keys(formErrors).length > 0 && (
+                <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs space-y-1">
+                  <strong className="font-bold block">Veuillez vérifier le formulaire :</strong>
+                  {Object.values(formErrors).map((err, idx) => (
+                    <div key={idx}>• {err}</div>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2 sm:col-span-1">
                   <label className="block text-xs font-medium text-slate-700 mb-1">

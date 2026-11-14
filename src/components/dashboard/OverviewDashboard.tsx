@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { Product, Seller, Sale, TimeRange, ExchangeRateConfig, AppSettings } from '../../types';
+import { Product, Seller, Sale, TimeRange, ExchangeRateConfig, AppSettings, getEffectiveStockThreshold } from '../../types';
 import { InteractiveRevenueChart } from '../charts/InteractiveRevenueChart';
 import { SalesTrendChart } from '../charts/SalesTrendChart';
 import { WeeklyRevenueChart } from '../charts/WeeklyRevenueChart';
 import { LowStockAlertsSection } from './LowStockAlertsSection';
-import { TrendingUp, ShoppingBag, Package, Users, AlertTriangle, ArrowUpRight, DollarSign, ArrowRight, ShieldCheck, Wine, ArrowLeftRight, Printer, Download, Crown, Lock, Target } from 'lucide-react';
+import { ExpirationAlertsSection } from './ExpirationAlertsSection';
+import { TrendingUp, ShoppingBag, Package, Users, AlertTriangle, ArrowUpRight, DollarSign, ArrowRight, ShieldCheck, Wine, ArrowLeftRight, Printer, Download, Crown, Lock, Target, BellRing, X, SlidersHorizontal } from 'lucide-react';
 import { formatHTG } from '../../utils/formatters';
 import { downloadInvoicePDF } from '../../utils/invoicePrinter';
 
@@ -23,6 +24,7 @@ interface OverviewDashboardProps {
   onNavigateToInvoices?: () => void;
   onNavigateToExchange?: () => void;
   onRestock?: (productId: string, quantity: number, reason?: string) => void;
+  onUpdateProduct?: (product: Product) => void;
   onPrintSale?: (sale: Sale) => void;
   currentUser?: Seller | null;
   onOpenLoginModal?: () => void;
@@ -44,6 +46,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   onNavigateToInvoices,
   onNavigateToExchange,
   onRestock,
+  onUpdateProduct,
   onPrintSale,
   currentUser,
   onOpenLoginModal,
@@ -79,20 +82,24 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
     return Math.round((userRevenue / currentUser.targetMonthlyRevenue) * 100);
   }, [userRevenue, currentUser]);
 
-  // Stock stats
+  const [dismissedAlertSig, setDismissedAlertSig] = useState<string | null>(null);
+  const globalDefaultThreshold = settings?.defaultStockMinAlert ?? 15;
+
+  // Stock stats using effective per-product threshold
   const stockStats = useMemo(() => {
     let stockValue = 0;
     let criticalItems = 0;
     let outOfStock = 0;
 
     products.forEach((p) => {
+      const { threshold } = getEffectiveStockThreshold(p, globalDefaultThreshold);
       stockValue += p.stock * p.costPrice;
       if (p.stock === 0) outOfStock++;
-      else if (p.stock <= p.minStockAlert) criticalItems++;
+      else if (p.stock <= threshold) criticalItems++;
     });
 
     return { stockValue, criticalItems, outOfStock };
-  }, [products]);
+  }, [products, globalDefaultThreshold]);
 
   // Top Sellers of period
   const topSellers = useMemo(() => {
@@ -113,10 +120,35 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       .slice(0, 3);
   }, [sellers, filteredSales]);
 
-  // Critical stock items list
-  const criticalProducts = useMemo(() => {
-    return products.filter((p) => p.stock <= p.minStockAlert);
-  }, [products]);
+  // Alerted stock items (sorted: out of stock first, then custom thresholds, then lowest ratio)
+  const alertedProductsList = useMemo(() => {
+    return products
+      .map((product) => {
+        const { threshold, isCustom } = getEffectiveStockThreshold(product, globalDefaultThreshold);
+        return {
+          product,
+          threshold,
+          isCustom,
+          isOutOfStock: product.stock === 0,
+        };
+      })
+      .filter((item) => item.product.stock <= item.threshold)
+      .sort((a, b) => {
+        if (a.isOutOfStock !== b.isOutOfStock) return a.isOutOfStock ? -1 : 1;
+        if (a.isCustom !== b.isCustom) return a.isCustom ? -1 : 1;
+        return a.product.stock / a.threshold - b.product.stock / b.threshold;
+      });
+  }, [products, globalDefaultThreshold]);
+
+  const customThresholdAlertCount = useMemo(
+    () => alertedProductsList.filter((i) => i.isCustom).length,
+    [alertedProductsList]
+  );
+
+  const alertSignature = useMemo(
+    () => alertedProductsList.map((i) => `${i.product.id}:${i.product.stock}:${i.threshold}`).join('|'),
+    [alertedProductsList]
+  );
 
   // Category & Consignments breakdown
   const categoryStockSummary = useMemo(() => {
@@ -296,6 +328,122 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         </div>
       )}
 
+      {/* Visual Notification Banner for Low Stock & Custom Per-Product Thresholds */}
+      {alertedProductsList.length > 0 && dismissedAlertSig !== alertSignature && (
+        <div
+          role="alert"
+          className={`rounded-xl border border-l-4 p-4 shadow-sm transition-all ${
+            stockStats.outOfStock > 0
+              ? 'bg-gradient-to-r from-red-50 via-rose-50/70 to-white border-red-200 border-l-red-600'
+              : 'bg-gradient-to-r from-amber-50 via-orange-50/60 to-white border-amber-200 border-l-amber-500'
+          }`}
+        >
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div
+                className={`p-2.5 rounded-xl shrink-0 ${
+                  stockStats.outOfStock > 0
+                    ? 'bg-red-100 text-red-700 ring-4 ring-red-100/60'
+                    : 'bg-amber-100 text-amber-800 ring-4 ring-amber-100/60'
+                }`}
+              >
+                <BellRing className="w-5 h-5 animate-pulse" />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className={`text-sm font-bold ${
+                      stockStats.outOfStock > 0 ? 'text-red-950' : 'text-amber-950'
+                    }`}
+                  >
+                    Notification Seuil d'Alerte : {alertedProductsList.length} produit
+                    {alertedProductsList.length > 1 ? 's' : ''} sous le seuil
+                  </span>
+
+                  {customThresholdAlertCount > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-100 text-indigo-900 border border-indigo-200">
+                      <SlidersHorizontal className="w-3 h-3 text-indigo-600" />
+                      {customThresholdAlertCount} seuil{customThresholdAlertCount > 1 ? 's' : ''} personnalisé
+                      {customThresholdAlertCount > 1 ? 's' : ''} déclenché{customThresholdAlertCount > 1 ? 's' : ''}
+                    </span>
+                  )}
+
+                  {stockStats.outOfStock > 0 && (
+                    <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-red-600 text-white">
+                      {stockStats.outOfStock} rupture{stockStats.outOfStock > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+
+                {/* Product Badges under threshold */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {alertedProductsList.slice(0, 6).map(({ product, threshold, isCustom, isOutOfStock }) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => {
+                        document.getElementById('low-stock-alerts-section')?.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors cursor-pointer ${
+                        isOutOfStock
+                          ? 'bg-white text-red-800 border-red-300 hover:bg-red-50'
+                          : isCustom
+                          ? 'bg-white text-indigo-900 border-indigo-300 hover:bg-indigo-50'
+                          : 'bg-white text-amber-900 border-amber-300 hover:bg-amber-50'
+                      }`}
+                    >
+                      <span className="font-semibold truncate max-w-[160px]">{product.name}</span>
+                      <span className="font-mono font-bold">
+                        {product.stock}/{threshold} u.
+                      </span>
+                      {isCustom && (
+                        <span className="text-[9px] font-bold uppercase px-1 py-0.2 bg-indigo-100 text-indigo-800 rounded">
+                          Perso
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                  {alertedProductsList.length > 6 && (
+                    <span className="text-[11px] font-semibold text-slate-600 px-1.5">
+                      +{alertedProductsList.length - 6} autre{alertedProductsList.length - 6 > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-end lg:self-center">
+              <button
+                type="button"
+                onClick={() => {
+                  document.getElementById('low-stock-alerts-section')?.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className="px-3 py-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors shadow-xs whitespace-nowrap cursor-pointer"
+              >
+                Réapprovisionner
+              </button>
+              <button
+                type="button"
+                onClick={onNavigateToStocks}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg transition-colors whitespace-nowrap flex items-center gap-1 cursor-pointer"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Ajuster seuils</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDismissedAlertSig(alertSignature)}
+                title="Masquer cette notification pour la session"
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 4 Primary KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Revenue (Company for Admin, Personal for Seller) */}
@@ -467,6 +615,14 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         onNavigateToSettings={onNavigateToSettings}
         onRestock={onRestock}
         onUpdateSettings={onUpdateSettings}
+      />
+
+      {/* Section Alertes Dates de Péremption (30 prochains jours) */}
+      <ExpirationAlertsSection
+        products={products}
+        onNavigateToStocks={onNavigateToStocks}
+        onUpdateProduct={onUpdateProduct}
+        isAdmin={isAdmin}
       />
 
       {/* Dedicated Recharts Daily Sales Trend Visualizer */}

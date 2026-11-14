@@ -401,7 +401,10 @@ export async function fetchCloudStats() {
 export async function syncSaveProduct(product: Product) {
   const path = `${COLLECTIONS.PRODUCTS}/${product.id}`;
   try {
-    await setDoc(doc(db, COLLECTIONS.PRODUCTS, product.id), product);
+    const cleanProduct = Object.fromEntries(
+      Object.entries(product).filter(([, v]) => v !== undefined)
+    );
+    await setDoc(doc(db, COLLECTIONS.PRODUCTS, product.id), cleanProduct);
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }

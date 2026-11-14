@@ -13,10 +13,13 @@
         "salePrice": { "type": "number" },
         "stock": { "type": "number" },
         "minStockAlert": { "type": "number" },
+        "customAlertThreshold": { "type": "number" },
         "reorderQuantity": { "type": "number" },
         "alcoholDegree": { "type": "number" },
         "volume": { "type": "string" },
         "isConsigne": { "type": "boolean" },
+        "expirationDate": { "type": "string" },
+        "batchNumber": { "type": "string" },
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "sku", "name", "category", "costPrice", "salePrice", "stock"]

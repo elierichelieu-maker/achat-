@@ -184,20 +184,6 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
     }
   };
 
-  const getCategoryBadgeClass = (category: string) => {
-    switch (category) {
-      case 'Bières & Cidres':
-        return 'bg-amber-50 text-amber-800 border-amber-200';
-      case 'Vins & Champagnes':
-        return 'bg-rose-50 text-rose-800 border-rose-200';
-      case 'Spiritueux':
-        return 'bg-orange-50 text-orange-800 border-orange-200';
-      case 'Eaux & Tonics':
-        return 'bg-cyan-50 text-cyan-800 border-cyan-200';
-      default:
-        return 'bg-blue-50 text-blue-800 border-blue-200';
-    }
-  };
 
   // Submit sale
   const handleSubmit = (e: React.FormEvent) => {
@@ -431,9 +417,9 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
               </div>
             </div>
 
-            {/* Square Cards Grid */}
+            {/* Liste des produits en lignes */}
             <div className="flex-1 overflow-y-auto pr-1">
-              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5">
+              <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden">
                 {filteredProducts.map((p) => {
                   const inCart = cartItems.find((ci) => ci.productId === p.id);
                   const inCartQty = inCart?.quantity || 0;
@@ -450,75 +436,59 @@ export const NewSaleModal: React.FC<NewSaleModalProps> = ({
                       tabIndex={0}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
                           if (!isOutOfStock) handleAddToCart(p);
                         }
                       }}
-                      className={`aspect-square p-2.5 rounded-xl border flex flex-col justify-between text-left transition-all relative select-none group shadow-2xs ${
+                      className={`px-3 py-2 flex items-center justify-between gap-2.5 text-left transition-colors select-none ${
                         isOutOfStock
-                          ? 'bg-slate-50 border-slate-200 opacity-55 cursor-not-allowed'
+                          ? 'bg-slate-50/80 opacity-60 cursor-not-allowed'
                           : inCartQty > 0
-                          ? 'bg-white border-blue-500 ring-2 ring-blue-500/20 shadow-xs cursor-pointer hover:border-blue-600'
-                          : 'bg-white border-slate-200 hover:border-slate-400 hover:shadow-xs cursor-pointer'
+                          ? 'bg-blue-50/40 hover:bg-blue-50/70 cursor-pointer'
+                          : 'bg-white hover:bg-slate-50 cursor-pointer'
                       }`}
                     >
-                      {/* Top: Category & Stock indicator */}
-                      <div className="flex items-center justify-between gap-1">
+                      {/* Gauche : Icône + Nom + Catégorie / Volume */}
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
+                          {getCategoryIcon(p.category)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-bold text-slate-900 text-xs truncate">{p.name}</h4>
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 truncate">
+                            <span className="truncate">{p.category}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="shrink-0 font-mono">{p.volume}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Droite : Stock + Prix + Ajout */}
+                      <div className="flex items-center gap-2.5 shrink-0">
                         <span
-                          className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border truncate max-w-[95px] ${getCategoryBadgeClass(
-                            p.category
-                          )}`}
+                          className={`text-[10px] font-semibold tabular-nums hidden sm:inline ${
+                            isOutOfStock
+                              ? 'text-rose-700'
+                              : isLowStock
+                              ? 'text-amber-700'
+                              : 'text-emerald-700'
+                          }`}
                         >
-                          {p.category}
+                          {isOutOfStock ? 'Rupture' : `Stock: ${p.stock}`}
                         </span>
 
-                        {isOutOfStock ? (
-                          <span className="text-[9px] font-bold text-red-700 bg-red-50 border border-red-200 px-1 py-0.2 rounded shrink-0">
-                            Rupture
-                          </span>
-                        ) : isLowStock ? (
-                          <span className="text-[9px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1 py-0.2 rounded shrink-0">
-                            {p.stock}
-                          </span>
-                        ) : (
-                          <span className="text-[9px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-1 py-0.2 rounded shrink-0">
-                            {p.stock}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Middle: Icon, Title & Format */}
-                      <div className="my-auto py-1">
-                        <div className="flex items-start gap-1.5 mb-1">
-                          <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 mt-0.5">
-                            {getCategoryIcon(p.category)}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <h4 className="font-bold text-slate-900 text-xs leading-tight line-clamp-2">
-                              {p.name}
-                            </h4>
-                            <span className="text-[10px] text-slate-400 font-mono block mt-0.5 truncate">
-                              {p.volume}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Bottom: Price & Add/Count */}
-                      <div className="flex items-center justify-between pt-1 border-t border-slate-100">
-                        <div>
-                          <span className="text-xs font-bold font-mono tabular-nums text-slate-900 block">
-                            {formatHTG(p.salePrice)}
-                          </span>
-                        </div>
+                        <span className="text-xs font-bold font-mono tabular-nums text-slate-900 min-w-[74px] text-right">
+                          {formatHTG(p.salePrice)}
+                        </span>
 
                         {inCartQty > 0 ? (
-                          <div className="bg-blue-600 text-white rounded-md px-1.5 py-0.5 text-[11px] font-bold">
+                          <span className="min-w-[36px] h-7 px-2 bg-blue-600 text-white rounded-md text-[11px] font-bold flex items-center justify-center tabular-nums">
                             x{inCartQty}
-                          </div>
+                          </span>
                         ) : (
-                          <div className="w-5 h-5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center">
-                            <Plus className="w-3 h-3" />
-                          </div>
+                          <span className="w-7 h-7 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center">
+                            <Plus className="w-3.5 h-3.5" />
+                          </span>
                         )}
                       </div>
                     </div>

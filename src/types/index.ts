@@ -7,11 +7,32 @@ export interface Product {
   salePrice: number; // Prix de vente HT unitaire (HTG)
   stock: number;
   minStockAlert: number;
+  customAlertThreshold?: number; // Seuil d'alerte personnalisé par produit (prioritaire sur le seuil global)
   reorderQuantity: number;
   alcoholDegree: number; // ex: 0.0% pour sodas/eaux, 5.0% pour bières, 12.5% pour vins, 40% pour spiritueux
   volume: string; // ex: "Pack 24×33cl", "Fût 30L", "Carton 6×75cl", "Bouteille 70cl"
   isConsigne?: boolean; // Fûts ou casiers avec consigne
+  expirationDate?: string; // Date de péremption / DLUO (YYYY-MM-DD)
+  batchNumber?: string; // Numéro de lot fournisseur
   updatedAt: string;
+}
+
+export function getEffectiveStockThreshold(
+  product: Product,
+  globalDefaultThreshold = 15
+): { threshold: number; isCustom: boolean } {
+  if (
+    typeof product.customAlertThreshold === 'number' &&
+    !isNaN(product.customAlertThreshold) &&
+    product.customAlertThreshold > 0
+  ) {
+    return { threshold: product.customAlertThreshold, isCustom: true };
+  }
+  const fallback =
+    typeof product.minStockAlert === 'number' && product.minStockAlert > 0
+      ? product.minStockAlert
+      : globalDefaultThreshold;
+  return { threshold: fallback, isCustom: false };
 }
 
 export interface Seller {

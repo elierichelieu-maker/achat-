@@ -1,0 +1,9 @@
+export { DashboardPage } from './DashboardPage';
+export { InventoryPage } from './InventoryPage';
+export { SalesPage } from './SalesPage';
+export { InvoicesPage } from './InvoicesPage';
+export { CustomersPage } from './CustomersPage';
+export { ExchangePage } from './ExchangePage';
+export { ReportsPage } from './ReportsPage';
+export { UsersPage } from './UsersPage';
+export { SettingsPage } from './SettingsPage';

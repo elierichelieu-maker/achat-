@@ -1,43 +1,73 @@
-import React, { useState, useEffect } from 'react';
-import { Product, Seller, Sale, StockMovement, Customer, AppSettings, ActiveTab, ExchangeRateConfig, ExchangeTransaction, isUserAdmin } from './types';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Seller, Sale, Customer, ActiveTab } from './types';
+import { INITIAL_SELLERS } from './data/mockData';
+import { DashboardPage } from './pages/DashboardPage';
 import {
-  INITIAL_PRODUCTS,
-  INITIAL_SELLERS,
-  generateInitialSales,
-  INITIAL_MOVEMENTS,
-  INITIAL_CUSTOMERS,
-  DEFAULT_SETTINGS,
-  DEFAULT_EXCHANGE_RATES,
-  INITIAL_EXCHANGE_TRANSACTIONS,
-} from './data/mockData';
-import { OverviewDashboard } from './components/dashboard/OverviewDashboard';
+  NAVIGATION_TABS,
+  MOBILE_PRIMARY_TAB_IDS,
+  STORAGE_KEYS,
+} from './constants/navigation';
+import { useAppData } from './hooks/useAppData';
+import { sellersService } from './services/dataService';
+import { DashboardSkeleton, ViewLoadingFallback } from './components/common/LoadingSkeleton';
+import { StatusFeedbackBanner } from './components/common/StatusFeedbackBanner';
+import { CollapsibleSection } from './components/common/CollapsibleSection';
+import { PWAInstallButton } from './components/common/PWAInstallButton';
+import { WaterBottleLogo } from './components/common/WaterBottleLogo';
+import { formatHTG } from './utils/formatters';
+import { smoothScrollToY, smoothScrollToElement } from './utils/smoothScroll';
+import {
+  PlusCircle,
+  Smartphone,
+  Cloud,
+  Share2,
+  KeyRound,
+  LogOut,
+  ChevronDown,
+  ChevronUp,
+  Crown,
+  Lock,
+  UserCog,
+  ArrowLeftRight,
+  ChevronLeft,
+  ChevronRight,
+  Layers,
+  MoveHorizontal,
+  Menu,
+  X,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Minimize2,
+  Maximize2,
+} from 'lucide-react';
 
+// Chargement paresseux des pages pour optimiser le démarrage mobile et la taille du bundle
+const InventoryPage = React.lazy(() =>
+  import('./pages/InventoryPage').then((m) => ({ default: m.InventoryPage }))
+);
+const CustomersPage = React.lazy(() =>
+  import('./pages/CustomersPage').then((m) => ({ default: m.CustomersPage }))
+);
+const SalesPage = React.lazy(() =>
+  import('./pages/SalesPage').then((m) => ({ default: m.SalesPage }))
+);
+const InvoicesPage = React.lazy(() =>
+  import('./pages/InvoicesPage').then((m) => ({ default: m.InvoicesPage }))
+);
+const ExchangePage = React.lazy(() =>
+  import('./pages/ExchangePage').then((m) => ({ default: m.ExchangePage }))
+);
+const ReportsPage = React.lazy(() =>
+  import('./pages/ReportsPage').then((m) => ({ default: m.ReportsPage }))
+);
+const UsersPage = React.lazy(() =>
+  import('./pages/UsersPage').then((m) => ({ default: m.UsersPage }))
+);
+const SettingsPage = React.lazy(() =>
+  import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+);
 
-// Dynamic lazy imports for high-performance mobile reload and reduced bundle size
-const StockManagementView = React.lazy(() =>
-  import('./components/stocks/StockManagementView').then((m) => ({ default: m.StockManagementView }))
-);
-const CustomersManagementView = React.lazy(() =>
-  import('./components/customers/CustomersManagementView').then((m) => ({ default: m.CustomersManagementView }))
-);
-const SalesHistoryView = React.lazy(() =>
-  import('./components/sales/SalesHistoryView').then((m) => ({ default: m.SalesHistoryView }))
-);
-const InvoicesManagementView = React.lazy(() =>
-  import('./components/invoices/InvoicesManagementView').then((m) => ({ default: m.InvoicesManagementView }))
-);
-const CurrencyExchangeView = React.lazy(() =>
-  import('./components/currency/CurrencyExchangeView').then((m) => ({ default: m.CurrencyExchangeView }))
-);
-const FinancialReportsView = React.lazy(() =>
-  import('./components/reports/FinancialReportsView').then((m) => ({ default: m.FinancialReportsView }))
-);
-const UsersManagementView = React.lazy(() =>
-  import('./components/users/UsersManagementView').then((m) => ({ default: m.UsersManagementView }))
-);
-const SettingsManagementView = React.lazy(() =>
-  import('./components/settings/SettingsManagementView').then((m) => ({ default: m.SettingsManagementView }))
-);
+// Modales secondaires chargées à la demande
 const NewSaleModal = React.lazy(() =>
   import('./components/sales/NewSaleModal').then((m) => ({ default: m.NewSaleModal }))
 );
@@ -45,7 +75,9 @@ const InvoiceReceiptModal = React.lazy(() =>
   import('./components/invoices/InvoiceReceiptModal').then((m) => ({ default: m.InvoiceReceiptModal }))
 );
 const MobileDeploymentGuideModal = React.lazy(() =>
-  import('./components/mobile/MobileDeploymentGuideModal').then((m) => ({ default: m.MobileDeploymentGuideModal }))
+  import('./components/mobile/MobileDeploymentGuideModal').then((m) => ({
+    default: m.MobileDeploymentGuideModal,
+  }))
 );
 const ShareAppModal = React.lazy(() =>
   import('./components/common/ShareAppModal').then((m) => ({ default: m.ShareAppModal }))
@@ -57,134 +89,116 @@ const CloudSyncCenterModal = React.lazy(() =>
   import('./components/common/CloudSyncCenterModal').then((m) => ({ default: m.CloudSyncCenterModal }))
 );
 
-import { PWAInstallButton } from './components/common/PWAInstallButton';
-import {
-  LayoutDashboard,
-  Package,
-  Users,
-  ShoppingBag,
-  FileSpreadsheet,
-  Settings,
-  PlusCircle,
-  Wine,
-  UserCog,
-  ArrowLeftRight,
-  FileText,
-  Smartphone,
-  Cloud,
-  RefreshCw,
-  Share2,
-  Copy,
-  Check,
-  KeyRound,
-  LogOut,
-  ChevronDown,
-  UserCheck,
-  Crown,
-  Lock,
-  ShieldAlert,
-  ChevronLeft,
-  ChevronRight,
-  ArrowUp,
-  ArrowDown,
-  Layers,
-  MoveHorizontal,
-} from 'lucide-react';
-import {
-  seedInitialDataIfEmpty,
-  subscribeToProducts,
-  subscribeToSellers,
-  subscribeToCustomers,
-  subscribeToSales,
-  subscribeToMovements,
-  subscribeToSettings,
-  subscribeToExchangeRates,
-  subscribeToExchangeTransactions,
-  syncSaveProduct,
-  syncDeleteProduct,
-  syncSaveSeller,
-  syncDeleteSeller,
-  syncSaveCustomer,
-  syncSaveSale,
-  syncSaveMovement,
-  syncSaveSettings,
-  syncSaveExchangeRates,
-  syncSaveExchangeTransaction,
-  syncDeleteExchangeTransaction,
-  syncResetAllDataToDefault,
-} from './services/cloudSyncService';
-import { WaterBottleLogo } from './components/common/WaterBottleLogo';
-
-const STORAGE_KEYS = {
-  PRODUCTS: 'optiboissons_products_v2',
-  SELLERS: 'optiboissons_sellers_v2',
-  SALES: 'optiboissons_sales_v2',
-  MOVEMENTS: 'optiboissons_movements_v2',
-  CUSTOMERS: 'optiboissons_customers_v2',
-  SETTINGS: 'optiboissons_settings_v2',
-  EXCHANGE_RATES: 'optiboissons_exchange_rates_v1',
-  EXCHANGE_TRANSACTIONS: 'optiboissons_exchange_transactions_v1',
-};
-
-function ViewLoadingFallback() {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-[280px] py-12 text-center">
-      <div className="w-8 h-8 border-3 border-amber-500 border-t-transparent rounded-full animate-spin mb-2.5" />
-      <span className="text-xs text-slate-500 font-medium">Chargement...</span>
-    </div>
-  );
-}
-
-interface NavTabConfig {
-  id: ActiveTab;
-  label: string;
-  shortLabel: string;
-  icon: React.ComponentType<{ className?: string }>;
-  description: string;
-}
-
-const NAVIGATION_TABS: NavTabConfig[] = [
-  { id: 'dashboard', label: 'Tableau de Bord', shortLabel: 'Dashboard', icon: LayoutDashboard, description: 'KPI & Aperçu' },
-  { id: 'inventory', label: 'Inventaire Boissons', shortLabel: 'Stocks', icon: Package, description: 'Stocks & Consignes' },
-  { id: 'sales', label: 'Ventes & Commandes', shortLabel: 'Ventes', icon: ShoppingBag, description: 'Commandes' },
-  { id: 'invoices', label: 'Factures & Règlements', shortLabel: 'Factures', icon: FileText, description: 'Créances' },
-  { id: 'customers', label: 'Clients & Consignes', shortLabel: 'Clients', icon: Users, description: 'Comptes' },
-  { id: 'exchange', label: 'Change USD / DOP', shortLabel: 'Change', icon: ArrowLeftRight, description: 'Devises en HTG' },
-  { id: 'reports', label: 'Rapports Financiers', shortLabel: 'Rapports', icon: FileSpreadsheet, description: 'Marges & CA' },
-  { id: 'users', label: 'Utilisateurs & Équipe', shortLabel: 'Équipe', icon: UserCog, description: 'Vendeurs' },
-  { id: 'settings', label: 'Paramètres', shortLabel: 'Config', icon: Settings, description: 'Configuration' },
-];
-
+/**
+ * Composant racine de l'application :
+ * - Réunit DistriBoissons, le Menu Principal et l'ensemble des sections sur une seule page fluide.
+ * - Offre un défilement vertical doux (monter/descendre) avec suivi automatique de la section active.
+ * - Permet de minimiser le panneau DistriBoissons/Menu Principal, l'en-tête mobile et chaque section métier.
+ */
 export default function App() {
-  // Navigation
+  // État centralisé des données et mutations Cloud/Local
+  const {
+    products,
+    sellers,
+    sales,
+    movements,
+    customers,
+    settings,
+    exchangeRates,
+    exchangeTransactions,
+    setSellers,
+    isInitialLoading,
+    isCloudConnected,
+    lastSyncTime,
+    syncError,
+    clearSyncError,
+    actionSuccess,
+    clearActionSuccess,
+    retryCloudSync,
+    handleCompleteSale,
+    handleRestock,
+    handleAddProduct,
+    handleUpdateProduct,
+    handleDeleteProduct,
+    handleAddCustomer,
+    handleUpdateCustomer,
+    handleAddSeller,
+    handleUpdateSeller,
+    handleDeleteSeller,
+    handleUpdateExchangeRates,
+    handleAddExchangeTransaction,
+    handleDeleteExchangeTransaction,
+    handleSaveSettings,
+    handleUpdateSaleStatus,
+    handleResetAllData,
+  } = useAppData();
+
+  // États de navigation et modales
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [isNewSaleOpen, setIsNewSaleOpen] = useState(false);
   const [selectedSellerForSale, setSelectedSellerForSale] = useState<string | undefined>(undefined);
-  const [selectedCustomerForSale, setSelectedCustomerForSale] = useState<{ name: string; company: string } | null>(null);
+  const [selectedCustomerForSale, setSelectedCustomerForSale] = useState<{
+    name: string;
+    company: string;
+  } | null>(null);
   const [isMobileGuideOpen, setIsMobileGuideOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isSyncCenterOpen, setIsSyncCenterOpen] = useState(false);
   const [saleToPrint, setSaleToPrint] = useState<Sale | null>(null);
 
-  // Single-Page View Modes & Fluid Navigation
-  // 'tabs' = Vue interactive avec navigation fluide Gauche ⇄ Droite (swipe & boutons)
-  // 'continuous' = Vue continue Monter ↕ Descendre (toutes les sections sur 1 seule page)
-  const [viewMode, setViewMode] = useState<'tabs' | 'continuous'>('tabs');
+  // Mode d'affichage : Page Unique Continue par défaut (avec bascule possible vers Onglets)
+  const [viewMode, setViewMode] = useState<'continuous' | 'tabs'>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.VIEW_MODE);
+      return saved === 'tabs' ? 'tabs' : 'continuous';
+    } catch {
+      return 'continuous';
+    }
+  });
+
+  // États de minimisation du panneau latéral, de l'en-tête mobile et des sections de la page
+  const [isSidebarMinimized, setIsSidebarMinimized] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.SIDEBAR_MINIMIZED) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isHeaderMinimized, setIsHeaderMinimized] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.HEADER_MINIMIZED) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.COLLAPSED_SECTIONS);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') return parsed as Record<string, boolean>;
+      }
+    } catch {
+      // Ignore erreur de lecture
+    }
+    return {};
+  });
+
   const [slideDirection, setSlideDirection] = useState<'left' | 'right'>('right');
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const [touchStartY, setTouchStartY] = useState<number | null>(null);
-  const navTrackRef = React.useRef<HTMLDivElement>(null);
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
-  // User Space Session: Default directly to Élie Richelieu (INITIAL_SELLERS[0], Administrateur Général)
-  // Direct access: No separate login barrier page ("ne fait pas la page double accès").
+  // Empêche le scroll-spy d'écraser la sélection pendant un défilement déclenché au clic
+  const programmaticScrollLockRef = useRef<number>(0);
+
+  // Session collaborateur active (accès direct sans page de blocage)
   const [currentUser, setCurrentUser] = useState<Seller>(() => {
     try {
-      const stored = localStorage.getItem('optiboissons_current_user_v2');
+      const stored = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && parsed.id) {
-          return parsed;
-        }
+        if (parsed && parsed.id) return parsed;
       }
       return INITIAL_SELLERS[0];
     } catch {
@@ -194,257 +208,64 @@ export default function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
-  // Administrative Role Check (Full access across the entire app)
   const isAdmin = true;
 
-  // Fluid Navigation Handlers: Left to Right ("Aller de gauche à droite")
-  const handleTabSelect = (targetTab: ActiveTab) => {
-    const currentIndex = NAVIGATION_TABS.findIndex((t) => t.id === activeTab);
-    const targetIndex = NAVIGATION_TABS.findIndex((t) => t.id === targetTab);
-    setSlideDirection(targetIndex >= currentIndex ? 'right' : 'left');
-    setActiveTab(targetTab);
-
-    if (viewMode === 'continuous') {
-      const el = document.getElementById(`section-${targetTab}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    } else {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    if (navTrackRef.current) {
-      const el = navTrackRef.current.querySelector(`[data-tab-id="${targetTab}"]`) as HTMLElement;
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-      }
-    }
-  };
-
-  const handleNextTab = () => {
-    const currentIndex = NAVIGATION_TABS.findIndex((t) => t.id === activeTab);
-    const nextIndex = currentIndex < NAVIGATION_TABS.length - 1 ? currentIndex + 1 : 0;
-    handleTabSelect(NAVIGATION_TABS[nextIndex].id);
-  };
-
-  const handlePrevTab = () => {
-    const currentIndex = NAVIGATION_TABS.findIndex((t) => t.id === activeTab);
-    const prevIndex = currentIndex > 0 ? currentIndex - 1 : NAVIGATION_TABS.length - 1;
-    handleTabSelect(NAVIGATION_TABS[prevIndex].id);
-  };
-
-  const handleScrollNavLeft = () => {
-    if (navTrackRef.current) {
-      navTrackRef.current.scrollBy({ left: -220, behavior: 'smooth' });
-    }
-  };
-
-  const handleScrollNavRight = () => {
-    if (navTrackRef.current) {
-      navTrackRef.current.scrollBy({ left: 220, behavior: 'smooth' });
-    }
-  };
-
-  // Touch Swipe Handlers for mobile & tablet (Left ⇄ Right swipe)
-  const handleTouchStart = (e: React.TouchEvent) => {
-    setTouchStartX(e.touches[0].clientX);
-    setTouchStartY(e.touches[0].clientY);
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX === null || touchStartY === null) return;
-    const touchEndX = e.changedTouches[0].clientX;
-    const touchEndY = e.changedTouches[0].clientY;
-    const deltaX = touchEndX - touchStartX;
-    const deltaY = touchEndY - touchStartY;
-
-    // Minimum swipe threshold: 45px horizontally and predominately horizontal
-    if (Math.abs(deltaX) > 45 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
-      if (deltaX < 0) {
-        // Swiped left -> move to next tab (right)
-        handleNextTab();
-      } else {
-        // Swiped right -> move to previous tab (left)
-        handlePrevTab();
-      }
-    }
-    setTouchStartX(null);
-    setTouchStartY(null);
-  };
-
-  // Smooth Scroll Handlers: Up and Down ("Monter descendre plus fluide")
-  const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const scrollToBottom = () => {
-    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
-  };
-
-  // Core Data loaded from localStorage or seeded
-  const [products, setProducts] = useState<Product[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].category) {
-          return parsed;
-        }
-      }
-      return INITIAL_PRODUCTS;
-    } catch {
-      return INITIAL_PRODUCTS;
-    }
-  });
-
-  const [sellers, setSellers] = useState<Seller[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.SELLERS);
-      return stored ? JSON.parse(stored) : INITIAL_SELLERS;
-    } catch {
-      return INITIAL_SELLERS;
-    }
-  });
-
-  const [sales, setSales] = useState<Sale[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.SALES);
-      return stored ? JSON.parse(stored) : generateInitialSales();
-    } catch {
-      return generateInitialSales();
-    }
-  });
-
-  const [movements, setMovements] = useState<StockMovement[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.MOVEMENTS);
-      return stored ? JSON.parse(stored) : INITIAL_MOVEMENTS;
-    } catch {
-      return INITIAL_MOVEMENTS;
-    }
-  });
-
-  const [customers, setCustomers] = useState<Customer[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.CUSTOMERS);
-      return stored ? JSON.parse(stored) : INITIAL_CUSTOMERS;
-    } catch {
-      return INITIAL_CUSTOMERS;
-    }
-  });
-
-  const [settings, setSettings] = useState<AppSettings>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object' && parsed.companyName) {
-          return parsed;
-        }
-      }
-      return DEFAULT_SETTINGS;
-    } catch {
-      return DEFAULT_SETTINGS;
-    }
-  });
-
-  const [exchangeRates, setExchangeRates] = useState<ExchangeRateConfig>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.EXCHANGE_RATES);
-      return stored ? JSON.parse(stored) : DEFAULT_EXCHANGE_RATES;
-    } catch {
-      return DEFAULT_EXCHANGE_RATES;
-    }
-  });
-
-  const [exchangeTransactions, setExchangeTransactions] = useState<ExchangeTransaction[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEYS.EXCHANGE_TRANSACTIONS);
-      return stored ? JSON.parse(stored) : INITIAL_EXCHANGE_TRANSACTIONS;
-    } catch {
-      return INITIAL_EXCHANGE_TRANSACTIONS;
-    }
-  });
-
-  // Persist state changes
+  // Persistance des préférences d'affichage et de minimisation
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
-    } catch (e) {
-      console.error(e);
+      localStorage.setItem(STORAGE_KEYS.VIEW_MODE, viewMode);
+    } catch {
+      // Ignore
     }
-  }, [products]);
+  }, [viewMode]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEYS.SELLERS, JSON.stringify(sellers));
-    } catch (e) {
-      console.error(e);
+      localStorage.setItem(STORAGE_KEYS.SIDEBAR_MINIMIZED, String(isSidebarMinimized));
+    } catch {
+      // Ignore
     }
-  }, [sellers]);
+  }, [isSidebarMinimized]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(sales));
-    } catch (e) {
-      console.error(e);
+      localStorage.setItem(STORAGE_KEYS.HEADER_MINIMIZED, String(isHeaderMinimized));
+    } catch {
+      // Ignore
     }
-  }, [sales]);
+  }, [isHeaderMinimized]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEYS.MOVEMENTS, JSON.stringify(movements));
-    } catch (e) {
-      console.error(e);
+      localStorage.setItem(STORAGE_KEYS.COLLAPSED_SECTIONS, JSON.stringify(collapsedSections));
+    } catch {
+      // Ignore
     }
-  }, [movements]);
+  }, [collapsedSections]);
 
+  // Auto-fermeture du message de succès global après 4 secondes
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(customers));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [customers]);
+    if (!actionSuccess) return;
+    const timer = window.setTimeout(() => {
+      clearActionSuccess();
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [actionSuccess, clearActionSuccess]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [settings]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.EXCHANGE_RATES, JSON.stringify(exchangeRates));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [exchangeRates]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.EXCHANGE_TRANSACTIONS, JSON.stringify(exchangeTransactions));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [exchangeTransactions]);
-
-  // Persist Current User Session
+  // Persistance locale de l'utilisateur courant
   useEffect(() => {
     try {
       if (currentUser) {
-        localStorage.setItem('optiboissons_current_user_v2', JSON.stringify(currentUser));
+        localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(currentUser));
       } else {
-        localStorage.removeItem('optiboissons_current_user_v2');
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
       }
     } catch (e) {
       console.error(e);
     }
   }, [currentUser]);
 
-  // Keep currentUser in sync when sellers list updates from Cloud Firestore
+  // Synchronise le profil courant lorsque l'équipe se met à jour depuis le Cloud
   useEffect(() => {
     if (currentUser) {
       const fresh = sellers.find((s) => s.id === currentUser.id);
@@ -454,7 +275,7 @@ export default function App() {
     }
   }, [sellers]);
 
-  // Quick QR Code Scan Verification: If URL contains ?facture=... or ?verify=...
+  // Ouverture automatique d'une facture via QR code (?facture=...)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -463,9 +284,7 @@ export default function App() {
       if (invoiceQuery && sales.length > 0) {
         const targetQuery = decodeURIComponent(invoiceQuery).trim().toLowerCase();
         const match = sales.find(
-          (s) =>
-            s.invoiceNumber.toLowerCase() === targetQuery ||
-            s.id.toLowerCase() === targetQuery
+          (s) => s.invoiceNumber.toLowerCase() === targetQuery || s.id.toLowerCase() === targetQuery
         );
         if (match) {
           setSaleToPrint(match);
@@ -476,11 +295,51 @@ export default function App() {
     }
   }, [sales]);
 
-  // User Login Success Handler
+  // Suivi fluide de la section visible au défilement en mode Page Unique Continue
+  useEffect(() => {
+    if (viewMode !== 'continuous' || isInitialLoading) return;
+
+    let rafId: number | null = null;
+
+    const updateActiveSectionFromScroll = () => {
+      rafId = null;
+      if (Date.now() < programmaticScrollLockRef.current) return;
+
+      const viewportAnchor = window.innerHeight * 0.25;
+      let currentBest: ActiveTab | null = null;
+
+      for (const tab of NAVIGATION_TABS) {
+        const el = document.getElementById(`section-${tab.id}`);
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.top <= viewportAnchor) {
+          currentBest = tab.id;
+        }
+      }
+
+      if (currentBest) {
+        setActiveTab((prev) => (prev === currentBest ? prev : currentBest));
+      }
+    };
+
+    const onScroll = () => {
+      if (rafId === null) {
+        rafId = window.requestAnimationFrame(updateActiveSectionFromScroll);
+      }
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+    };
+  }, [viewMode, isInitialLoading]);
+
+  // Changement d'utilisateur actif
   const handleLoginSuccess = (user: Seller) => {
     setCurrentUser(user);
     try {
-      localStorage.setItem('optiboissons_current_user_v2', JSON.stringify(user));
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(user));
       if (typeof window !== 'undefined' && window.location.search) {
         const url = new URL(window.location.href);
         url.searchParams.delete('auth');
@@ -496,674 +355,169 @@ export default function App() {
       lastLogin: new Date().toISOString(),
     };
     setSellers((prev) => prev.map((s) => (s.id === user.id ? updated : s)));
-    syncSaveSeller(updated);
+    sellersService.save(updated).catch((err) => console.error('Erreur sauvegarde connexion:', err));
   };
 
-  // Real-time Cloud Synchronization across Computer, Phone, and Tablet
-  const [isCloudConnected, setIsCloudConnected] = useState(true);
-  const [lastSyncTime, setLastSyncTime] = useState<string>('');
-
-  useEffect(() => {
-    // 1. Initial check & seed if Firestore database is fresh
-    seedInitialDataIfEmpty();
-
-    // 2. Real-time listeners for live multi-device synchronization
-    const unsubProducts = subscribeToProducts((prods) => {
-      setProducts(prods);
-      setIsCloudConnected(true);
-      setLastSyncTime(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
-    });
-
-    const unsubSellers = subscribeToSellers((sels) => {
-      setSellers(sels);
-      setIsCloudConnected(true);
-    });
-
-    const unsubCustomers = subscribeToCustomers((custs) => {
-      setCustomers(custs);
-      setIsCloudConnected(true);
-    });
-
-    const unsubSales = subscribeToSales((sls) => {
-      setSales(sls);
-      setIsCloudConnected(true);
-      setLastSyncTime(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
-    });
-
-    const unsubMovements = subscribeToMovements((movs) => {
-      setMovements(movs);
-      setIsCloudConnected(true);
-    });
-
-    const unsubSettings = subscribeToSettings((sett) => {
-      setSettings((prev) => {
-        if (prev && prev.updatedAt && sett.updatedAt) {
-          const prevTime = new Date(prev.updatedAt).getTime();
-          const settTime = new Date(sett.updatedAt).getTime();
-          if (prevTime > settTime) {
-            // Local settings are newer than incoming cloud snapshot, preserve local and sync
-            syncSaveSettings(prev);
-            return prev;
-          }
-        }
-        return sett;
-      });
-      setIsCloudConnected(true);
-    });
-
-    const unsubRates = subscribeToExchangeRates((rates) => {
-      setExchangeRates(rates);
-      setIsCloudConnected(true);
-    });
-
-    const unsubTxs = subscribeToExchangeTransactions((txs) => {
-      setExchangeTransactions(txs);
-      setIsCloudConnected(true);
-    });
-
-    return () => {
-      unsubProducts();
-      unsubSellers();
-      unsubCustomers();
-      unsubSales();
-      unsubMovements();
-      unsubSettings();
-      unsubRates();
-      unsubTxs();
-    };
+  // Minimiser ou déplier une section individuelle
+  const toggleSectionMinimized = useCallback((sectionId: ActiveTab) => {
+    setCollapsedSections((prev) => ({
+      ...prev,
+      [sectionId]: !prev[sectionId],
+    }));
   }, []);
 
-  // Handler: Complete a new sale (deducts stock immediately & logs movement)
-  const handleCompleteSale = (newSale: Sale) => {
-    // 1. Add sale to top of sales list & push to cloud
-    setSales((prev) => [newSale, ...prev]);
-    syncSaveSale(newSale);
-
-    // 2. Decrement stock for all items
-    const newMovements: StockMovement[] = [];
-    setProducts((prevProds) => {
-      return prevProds.map((prod) => {
-        const itemSold = newSale.items.find((it) => it.productId === prod.id);
-        if (itemSold) {
-          const prevStock = prod.stock;
-          const nextStock = Math.max(0, prod.stock - itemSold.quantity);
-
-          const mov: StockMovement = {
-            id: `mov-${Date.now()}-${prod.id}`,
-            productId: prod.id,
-            productName: prod.name,
-            type: 'out',
-            quantity: itemSold.quantity,
-            previousStock: prevStock,
-            newStock: nextStock,
-            reason: `Livraison ${newSale.invoiceNumber} (${newSale.customerName})`,
-            date: new Date().toISOString(),
-            operator: newSale.sellerName,
-          };
-
-          newMovements.push(mov);
-          syncSaveMovement(mov);
-
-          const updatedProd = {
-            ...prod,
-            stock: nextStock,
-            updatedAt: new Date().toISOString(),
-          };
-          syncSaveProduct(updatedProd);
-
-          return updatedProd;
-        }
-        return prod;
+  // Tout réduire ou tout ouvrir d'un seul geste
+  const allSectionsMinimized = NAVIGATION_TABS.every((t) => Boolean(collapsedSections[t.id]));
+  const handleToggleAllSections = useCallback(() => {
+    if (allSectionsMinimized) {
+      setCollapsedSections({});
+    } else {
+      const next: Record<string, boolean> = {};
+      NAVIGATION_TABS.forEach((t) => {
+        next[t.id] = true;
       });
-    });
-
-    // 3. Append movements
-    if (newMovements.length > 0) {
-      setMovements((prev) => [...newMovements, ...prev]);
+      setCollapsedSections(next);
     }
+  }, [allSectionsMinimized]);
 
-    // 4. Update customer accumulated stats if existing
-    setCustomers((prevCusts) => {
-      return prevCusts.map((c) => {
-        const matchCompany =
-          newSale.customerCompany &&
-          c.company.toLowerCase().trim() === newSale.customerCompany.toLowerCase().trim();
-        const matchName =
-          c.name.toLowerCase().trim() === newSale.customerName.toLowerCase().trim();
+  // Navigation fluide vers une section ou un onglet (déplie automatiquement si minimisé)
+  const handleTabSelect = useCallback(
+    (targetTab: ActiveTab) => {
+      const currentIndex = NAVIGATION_TABS.findIndex((t) => t.id === activeTab);
+      const targetIndex = NAVIGATION_TABS.findIndex((t) => t.id === targetTab);
+      setSlideDirection(targetIndex >= currentIndex ? 'right' : 'left');
+      setActiveTab(targetTab);
+      setIsMobileDrawerOpen(false);
+      setIsUserMenuOpen(false);
 
-        if (matchCompany || matchName) {
-          // Count consigned items (kegs/crates)
-          const kegsCount = newSale.items.reduce((sum, it) => {
-            const prod = products.find((p) => p.id === it.productId);
-            return sum + (prod?.isConsigne ? it.quantity : 0);
-          }, 0);
+      if (viewMode === 'continuous') {
+        // S'assure que la section ciblée est ouverte avant de défiler jusqu'à elle
+        setCollapsedSections((prev) => {
+          if (!prev[targetTab]) return prev;
+          return { ...prev, [targetTab]: false };
+        });
 
-          const updatedCust = {
-            ...c,
-            totalSpent: c.totalSpent + newSale.totalHT,
-            activeKegsConsigned: c.activeKegsConsigned + kegsCount,
-          };
-          syncSaveCustomer(updatedCust);
+        programmaticScrollLockRef.current = Date.now() + 650;
+        window.requestAnimationFrame(() => {
+          const isMobileViewport = window.innerWidth < 768;
+          const offset = isMobileViewport ? (isHeaderMinimized ? 52 : 70) : 20;
+          smoothScrollToElement(`section-${targetTab}`, offset, 520);
+        });
+      } else {
+        smoothScrollToY(0, 380);
+      }
+    },
+    [activeTab, viewMode, isHeaderMinimized]
+  );
 
-          return updatedCust;
-        }
-        return c;
-      });
-    });
+  const handleNextTab = useCallback(() => {
+    const currentIndex = NAVIGATION_TABS.findIndex((t) => t.id === activeTab);
+    const nextIndex = currentIndex < NAVIGATION_TABS.length - 1 ? currentIndex + 1 : 0;
+    handleTabSelect(NAVIGATION_TABS[nextIndex].id);
+  }, [activeTab, handleTabSelect]);
+
+  const handlePrevTab = useCallback(() => {
+    const currentIndex = NAVIGATION_TABS.findIndex((t) => t.id === activeTab);
+    const prevIndex = currentIndex > 0 ? currentIndex - 1 : NAVIGATION_TABS.length - 1;
+    handleTabSelect(NAVIGATION_TABS[prevIndex].id);
+  }, [activeTab, handleTabSelect]);
+
+  // Détection de glissement tactile horizontal (uniquement en mode Onglets pour ne pas gêner le scroll vertical)
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (viewMode !== 'tabs') return;
+    setTouchStartX(e.touches[0].clientX);
+    setTouchStartY(e.touches[0].clientY);
   };
 
-  // Handler: Restock an item
-  const handleRestock = (productId: string, quantity: number, reason = 'Réapprovisionnement Brasserie/Fournisseur') => {
-    let targetProdName = '';
-    let prevStock = 0;
-    let nextStock = 0;
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (viewMode !== 'tabs' || touchStartX === null || touchStartY === null) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartX;
+    const deltaY = e.changedTouches[0].clientY - touchStartY;
 
-    setProducts((prev) =>
-      prev.map((p) => {
-        if (p.id === productId) {
-          targetProdName = p.name;
-          prevStock = p.stock;
-          nextStock = p.stock + quantity;
-          const updated = {
-            ...p,
-            stock: nextStock,
-            updatedAt: new Date().toISOString(),
-          };
-          syncSaveProduct(updated);
-          return updated;
-        }
-        return p;
-      })
-    );
-
-    const mov: StockMovement = {
-      id: `mov-${Date.now()}`,
-      productId,
-      productName: targetProdName,
-      type: 'in',
-      quantity,
-      previousStock: prevStock,
-      newStock: nextStock,
-      reason,
-      date: new Date().toISOString(),
-      operator: 'Gestionnaire Entrepôt Boissons',
-    };
-    setMovements((prev) => [mov, ...prev]);
-    syncSaveMovement(mov);
-  };
-
-  // Handler: Add a brand new product
-  const handleAddProduct = (newProd: Omit<Product, 'id' | 'updatedAt'>) => {
-    const id = `prod-${Date.now()}`;
-    const product: Product = {
-      ...newProd,
-      id,
-      updatedAt: new Date().toISOString(),
-    };
-    setProducts((prev) => [product, ...prev]);
-    syncSaveProduct(product);
-
-    if (newProd.stock > 0) {
-      const mov: StockMovement = {
-        id: `mov-${Date.now()}`,
-        productId: id,
-        productName: newProd.name,
-        type: 'in',
-        quantity: newProd.stock,
-        previousStock: 0,
-        newStock: newProd.stock,
-        reason: 'Réception initiale brasserie/embouteilleur',
-        date: new Date().toISOString(),
-        operator: 'Direction des Approvisionnements',
-      };
-      setMovements((prev) => [mov, ...prev]);
-      syncSaveMovement(mov);
+    if (Math.abs(deltaX) > 45 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
+      if (deltaX < 0) handleNextTab();
+      else handlePrevTab();
     }
+    setTouchStartX(null);
+    setTouchStartY(null);
   };
 
-  // Handler: Update product
-  const handleUpdateProduct = (updated: Product) => {
-    // If stock changed directly, log a movement
-    const prev = products.find((p) => p.id === updated.id);
-    if (prev && prev.stock !== updated.stock) {
-      const diff = updated.stock - prev.stock;
-      const mov: StockMovement = {
-        id: `mov-${Date.now()}`,
-        productId: updated.id,
-        productName: updated.name,
-        type: diff > 0 ? 'in' : 'out',
-        quantity: Math.abs(diff),
-        previousStock: prev.stock,
-        newStock: updated.stock,
-        reason: 'Ajustement manuel inventaire',
-        date: new Date().toISOString(),
-        operator: 'Responsable Stock',
-      };
-      setMovements((prevMovs) => [mov, ...prevMovs]);
-      syncSaveMovement(mov);
-    }
-    setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-    syncSaveProduct(updated);
+  const scrollToTop = () => {
+    programmaticScrollLockRef.current = Date.now() + 650;
+    setActiveTab('dashboard');
+    smoothScrollToY(0, 560);
   };
 
-  // Handler: Delete product
-  const handleDeleteProduct = (productId: string) => {
-    setProducts((prev) => prev.filter((p) => p.id !== productId));
-    syncDeleteProduct(productId);
-  };
-
-  // Handler: Add Customer
-  const handleAddCustomer = (newCust: Omit<Customer, 'id' | 'createdAt' | 'totalSpent'>) => {
-    const id = `cust-${Date.now()}`;
-    const cust: Customer = {
-      ...newCust,
-      id,
-      totalSpent: 0,
-      createdAt: new Date().toISOString(),
-    };
-    setCustomers((prev) => [cust, ...prev]);
-    syncSaveCustomer(cust);
-  };
-
-  // Handler: Update Customer
-  const handleUpdateCustomer = (updated: Customer) => {
-    setCustomers((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-    syncSaveCustomer(updated);
-  };
-
-  // Handler: Add Seller / User
-  const handleAddSeller = (newSeller: Omit<Seller, 'id'>) => {
-    const id = `sel-${Date.now()}`;
-    const seller: Seller = {
-      ...newSeller,
-      id,
-      status: newSeller.status || 'Actif',
-      lastLogin: new Date().toISOString(),
-    };
-    setSellers((prev) => [...prev, seller]);
-    syncSaveSeller(seller);
-  };
-
-  // Handler: Update Seller / User
-  const handleUpdateSeller = (updatedSeller: Seller) => {
-    setSellers((prev) => prev.map((s) => (s.id === updatedSeller.id ? updatedSeller : s)));
-    syncSaveSeller(updatedSeller);
-  };
-
-  // Handler: Delete Seller / User
-  const handleDeleteSeller = (sellerId: string) => {
-    setSellers((prev) => prev.filter((s) => s.id !== sellerId));
-    syncDeleteSeller(sellerId);
-  };
-
-  // Handler: Update Exchange Rates
-  const handleUpdateExchangeRates = (newRates: ExchangeRateConfig) => {
-    setExchangeRates(newRates);
-    syncSaveExchangeRates(newRates);
-  };
-
-  // Handler: Add Exchange Transaction
-  const handleAddExchangeTransaction = (newTx: Omit<ExchangeTransaction, 'id'>) => {
-    const id = `exc-${Date.now()}`;
-    const tx: ExchangeTransaction = { ...newTx, id };
-    setExchangeTransactions((prev) => [tx, ...prev]);
-    syncSaveExchangeTransaction(tx);
-  };
-
-  // Handler: Delete Exchange Transaction
-  const handleDeleteExchangeTransaction = (id: string) => {
-    setExchangeTransactions((prev) => prev.filter((tx) => tx.id !== id));
-    syncDeleteExchangeTransaction(id);
-  };
-
-  // Handler: Save Settings
-  const handleSaveSettings = async (newSettings: AppSettings) => {
-    const stampedSettings: AppSettings = {
-      ...newSettings,
-      updatedAt: new Date().toISOString(),
-    };
-    setSettings(stampedSettings);
-    try {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(stampedSettings));
-    } catch (e) {
-      console.error(e);
-    }
-    await syncSaveSettings(stampedSettings);
-  };
-
-  // Handler: Update Sale / Invoice status
-  const handleUpdateSaleStatus = (
-    saleId: string,
-    newStatus: 'completed' | 'pending' | 'cancelled',
-    paymentMethod?: Sale['paymentMethod']
-  ) => {
-    setSales((prev) =>
-      prev.map((s) => {
-        if (s.id === saleId) {
-          const updated: Sale = {
-            ...s,
-            status: newStatus,
-            ...(paymentMethod ? { paymentMethod } : {}),
-          };
-          syncSaveSale(updated);
-          return updated;
-        }
-        return s;
-      })
-    );
-  };
-
-  // Reset demo data
-  const handleResetAllData = () => {
-    localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
-    localStorage.removeItem(STORAGE_KEYS.SELLERS);
-    localStorage.removeItem(STORAGE_KEYS.SALES);
-    localStorage.removeItem(STORAGE_KEYS.MOVEMENTS);
-    localStorage.removeItem(STORAGE_KEYS.CUSTOMERS);
-    localStorage.removeItem(STORAGE_KEYS.SETTINGS);
-    localStorage.removeItem(STORAGE_KEYS.EXCHANGE_RATES);
-    localStorage.removeItem(STORAGE_KEYS.EXCHANGE_TRANSACTIONS);
-    setProducts(INITIAL_PRODUCTS);
-    setSellers(INITIAL_SELLERS);
-    setSales(generateInitialSales());
-    setMovements(INITIAL_MOVEMENTS);
-    setCustomers(INITIAL_CUSTOMERS);
-    setSettings(DEFAULT_SETTINGS);
-    setExchangeRates(DEFAULT_EXCHANGE_RATES);
-    setExchangeTransactions(INITIAL_EXCHANGE_TRANSACTIONS);
-    syncResetAllDataToDefault();
-  };
-
-  // Quick sale for specific seller
   const handleOpenSaleForSeller = (sellerId: string) => {
     setSelectedSellerForSale(sellerId);
     setSelectedCustomerForSale(null);
     setIsNewSaleOpen(true);
   };
 
-  // Quick sale for specific customer
   const handleStartSaleForCustomer = (customer: Customer) => {
-    setSelectedCustomerForSale({
-      name: customer.name,
-      company: customer.company,
-    });
+    setSelectedCustomerForSale({ name: customer.name, company: customer.company });
     setSelectedSellerForSale(undefined);
     setIsNewSaleOpen(true);
   };
 
-  // Render Workspace directly without any login barrier ("ne fait pas la page double accès")
+  const mobilePrimaryTabs = NAVIGATION_TABS.filter((t) =>
+    MOBILE_PRIMARY_TAB_IDS.includes(t.id)
+  );
+  const isOverflowTabActive = !MOBILE_PRIMARY_TAB_IDS.includes(activeTab);
+
+  // Résumés chiffrés sobres affichés dans les en-têtes des sections repliables
+  const sectionSummaries: Partial<Record<ActiveTab, string>> = {
+    dashboard: `${sales.length} ventes · ${products.length} réf.`,
+    inventory: `${products.length} produits`,
+    sales: `${sales.length} opérations`,
+    invoices: `${sales.filter((s) => s.status === 'pending').length} en attente`,
+    customers: `${customers.length} comptes CHR`,
+    exchange: `${exchangeTransactions.length} opérations`,
+    reports: `Analyse CA & marges`,
+    users: `${sellers.length} membres`,
+    settings: settings.companyName || 'Entreprise',
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-amber-100 selection:text-amber-900">
-      {/* Official Single Link Notice Banner */}
-      {typeof window !== 'undefined' &&
-        !window.location.hostname.includes('gestion-de-ventanakayit.netlify.app') &&
-        !window.location.hostname.includes('localhost') && (
-          <div className="bg-gradient-to-r from-slate-900 via-amber-950 to-slate-900 text-white px-3 sm:px-4 py-2 text-xs flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/30">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-              <span className="font-bold text-amber-300">Lien Officiel Unique :</span>
-              <a
-                href="https://gestion-de-ventanakayit.netlify.app/"
-                className="font-mono font-bold text-white hover:text-amber-200 underline"
+    <div className="min-h-screen bg-slate-50 text-slate-900 text-[12px] flex flex-col font-sans selection:bg-amber-100 selection:text-amber-900">
+      {/* En-tête mobile compact et minimisable (masqué sur md+ car DistriBoissons et Menu Principal sont unifiés dans le panneau latéral) */}
+      <header
+        className={`md:hidden sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 transition-all duration-200 ${
+          isHeaderMinimized ? 'h-11' : 'h-14'
+        }`}
+      >
+        <div className="h-full px-3 flex items-center justify-between gap-2">
+          {/* Logo & Identité DistriBoissons */}
+          <button
+            type="button"
+            onClick={scrollToTop}
+            className="flex items-center gap-2 min-w-0 whitespace-nowrap shrink-0 cursor-pointer text-left"
+          >
+            <span className="w-7 h-7 rounded-lg bg-amber-600 text-white flex items-center justify-center shrink-0">
+              <WaterBottleLogo className="w-4 h-4 text-white" />
+            </span>
+            <span className="text-sm font-bold tracking-tight text-slate-900 truncate max-w-[140px]">
+              {settings.companyName || 'DistriBoissons Pro'}
+            </span>
+          </button>
+
+          {/* Actions rapides mobile + Bouton Minimiser l'en-tête */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!isHeaderMinimized && (
+              <button
+                type="button"
+                onClick={() => setIsSyncCenterOpen(true)}
+                className={`min-h-[36px] px-2 py-1 rounded-lg border text-[11px] font-semibold flex items-center gap-1 cursor-pointer ${
+                  isCloudConnected
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-amber-50 border-amber-200 text-amber-800'
+                }`}
+                title="État synchronisation Cloud"
               >
-                https://gestion-de-ventanakayit.netlify.app/
-              </a>
-              <span className="text-slate-300 text-[11px] hidden md:inline">
-                (Tous les autres liens sont inactifs pour assurer un travail unique)
-              </span>
-            </div>
-            <a
-              href="https://gestion-de-ventanakayit.netlify.app/"
-              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-md text-[11px] transition shadow-xs whitespace-nowrap ml-auto"
-            >
-              Basculer sur le lien officiel →
-            </a>
-          </div>
-        )}
-
-      {/* Top Header Bar */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-6">
-          {/* Brand Wordmark & Single Official Link */}
-          <div className="flex items-center gap-4">
-            <div
-              onClick={() => setActiveTab('dashboard')}
-              className="flex items-center gap-2.5 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <span
-                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center shadow-xs ring-1 ring-amber-600/30 shrink-0 hover:scale-105 transition-transform"
-                title="Distribution de Boissons & Eaux"
-              >
-                <WaterBottleLogo className="w-5 h-5 text-white drop-shadow-xs" />
-              </span>
-              <div className="leading-tight">
-                <span className="text-base font-bold tracking-tight text-slate-900 block">
-                  {settings.companyName || 'DistriBoissons Pro'}
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono block">
-                  Boissons Gazeuses & Alcoolisées
-                </span>
-              </div>
-            </div>
-
-            {/* Single Official Link Badge */}
-            <a
-              href="https://gestion-de-ventanakayit.netlify.app/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-300 text-[11px] font-mono text-emerald-800 hover:bg-emerald-100 transition shadow-2xs"
-              title="Lien officiel unique (Tous les autres liens sont inactifs)"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="font-semibold">gestion-de-ventanakayit.netlify.app</span>
-              <span className="text-[9px] bg-emerald-600 text-white px-1.5 py-0.2 rounded-full font-bold uppercase">
-                Actif
-              </span>
-            </a>
-          </div>
-
-          {/* View Mode Switcher: Onglets (Gauche ⇄ Droite) vs Page Continue (Monter ↕ Descendre) */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
-            <button
-              type="button"
-              onClick={() => setViewMode('tabs')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                viewMode === 'tabs'
-                  ? 'bg-white text-amber-900 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="Navigation fluide d'un onglet à l'autre (Aller de gauche à droite)"
-            >
-              <MoveHorizontal className="w-3.5 h-3.5 text-amber-600" />
-              <span className="hidden sm:inline">Onglets Fluides</span>
-              <span className="sm:hidden">Onglets</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setViewMode('continuous');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                viewMode === 'continuous'
-                  ? 'bg-white text-amber-900 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-              title="Afficher toutes les sections sur une seule page continue (Monter et descendre de façon fluide)"
-            >
-              <Layers className="w-3.5 h-3.5 text-amber-600" />
-              <span className="hidden sm:inline">Page Continue</span>
-              <span className="sm:hidden">1 Page</span>
-            </button>
-          </div>
-
-          {/* Primary Action Button */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* User Space Session & Login Profile */}
-            <div className="relative">
-              {currentUser ? (
-                <button
-                  type="button"
-                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                  className="flex items-center gap-2 pl-1.5 pr-2.5 py-1 rounded-xl border border-slate-200 hover:border-amber-400 bg-white hover:bg-amber-50/50 shadow-2xs transition-all cursor-pointer"
-                  title="Mon Espace Collaborateur - Cliquer pour changer de compte ou voir les détails"
-                >
-                  <img
-                    src={currentUser.avatar}
-                    alt={currentUser.name}
-                    className="w-7 h-7 rounded-full object-cover border border-amber-500/40"
-                    onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                  <div className="text-left hidden xl:block leading-tight max-w-[120px]">
-                    <span className="text-xs font-bold text-slate-800 block truncate">
-                      {currentUser.name}
-                    </span>
-                    <span className="text-[10px] text-slate-400 block truncate">
-                      {currentUser.role}
-                    </span>
-                  </div>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsLoginModalOpen(true)}
-                  className="px-3 py-1.5 text-xs font-bold text-amber-950 bg-amber-400 hover:bg-amber-500 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
-                  title="Connexion avec Email ou Téléphone et mot de passe"
-                >
-                  <KeyRound className="w-3.5 h-3.5" />
-                  <span>Connexion</span>
-                </button>
-              )}
-
-              {/* User Dropdown */}
-              {isUserMenuOpen && currentUser && (
-                <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
-                  <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3">
-                    <img
-                      src={currentUser.avatar}
-                      alt={currentUser.name}
-                      className="w-10 h-10 rounded-full object-cover border border-slate-200"
-                    />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-slate-900 truncate">{currentUser.name}</span>
-                        {isAdmin ? (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 flex items-center gap-0.5 shrink-0">
-                            <Crown className="w-2.5 h-2.5 text-amber-600" />
-                            Admin
-                          </span>
-                        ) : (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 shrink-0">
-                            Commercial
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-slate-500 truncate">{currentUser.role}</div>
-                      <div className="text-[10px] text-slate-400 truncate font-mono mt-0.5">{currentUser.email}</div>
-                      {currentUser.phone && (
-                        <div className="text-[10px] text-slate-400 truncate font-mono">{currentUser.phone}</div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="px-2 py-1.5">
-                    {isAdmin ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsUserMenuOpen(false);
-                          setActiveTab('users');
-                        }}
-                        className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-amber-700 rounded-lg flex items-center gap-2 transition cursor-pointer"
-                      >
-                        <UserCog className="w-4 h-4 text-slate-400" />
-                        <span>Gestion de l'Équipe & Rôles</span>
-                      </button>
-                    ) : (
-                      <div className="px-3 py-2 text-[11px] text-slate-500 bg-slate-50 rounded-lg flex items-center gap-2 mb-1">
-                        <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span>Accès Commercial restreint (Ventes & Factures)</span>
-                      </div>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsUserMenuOpen(false);
-                        setIsLoginModalOpen(true);
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-amber-700 rounded-lg flex items-center gap-2 transition cursor-pointer"
-                    >
-                      <ArrowLeftRight className="w-4 h-4 text-slate-400" />
-                      <span>Changer d'utilisateur (Email / Tél)</span>
-                    </button>
-                  </div>
-
-                  <div className="border-t border-slate-100 px-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCurrentUser(INITIAL_SELLERS[0]);
-                        try {
-                          localStorage.removeItem('optiboissons_current_user_v2');
-                        } catch (e) {
-                          console.error(e);
-                        }
-                        setIsUserMenuOpen(false);
-                        setIsLoginModalOpen(true);
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 rounded-lg flex items-center gap-2 transition font-medium cursor-pointer"
-                    >
-                      <LogOut className="w-4 h-4 text-rose-500" />
-                      <span>Changer d'utilisateur / Profil</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* PWA Direct Mobile Install Button */}
-            <PWAInstallButton />
-
-            {/* Real-time Cloud Sync Badge & Center Opener */}
-            <button
-              type="button"
-              onClick={() => setIsSyncCenterOpen(true)}
-              className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs ${
-                isCloudConnected
-                  ? 'bg-emerald-50 hover:bg-emerald-100/80 border-emerald-300 text-emerald-800'
-                  : 'bg-amber-50 hover:bg-amber-100/80 border-amber-300 text-amber-800'
-              }`}
-              title={`Données connectées au Cloud Firestore en temps réel. Cliquez pour ouvrir le Centre de Synchronisation Netlify & GitHub. ${lastSyncTime ? `Dernière synchro : ${lastSyncTime}` : ''}`}
-            >
-              <span className={`w-2 h-2 rounded-full ${isCloudConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              <Cloud className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="hidden md:inline">Cloud Synchro</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsShareModalOpen(true)}
-              className="px-3 py-2 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 shadow-xs cursor-pointer"
-              title="Obtenir le lien de partage pour permettre aux utilisateurs de se connecter"
-            >
-              <Share2 className="w-3.5 h-3.5 text-amber-600" />
-              <span>Partager</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsMobileGuideOpen(true)}
-              className="px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 shadow-xs cursor-pointer"
-              title="Guide de lancement mobile : Google Play et Apple App Store"
-            >
-              <Smartphone className="w-3.5 h-3.5 text-blue-600" />
-              <span className="hidden sm:inline">App Store & Play</span>
-              <span className="sm:hidden">Mobile</span>
-            </button>
+                <Cloud className="w-3.5 h-3.5" />
+                <span>{isCloudConnected ? 'Sync' : 'Hors-ligne'}</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -1172,30 +526,126 @@ export default function App() {
                 setSelectedCustomerForSale(null);
                 setIsNewSaleOpen(true);
               }}
-              className="px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 shadow-xs cursor-pointer"
+              className={`px-2.5 rounded-lg text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer ${
+                isHeaderMinimized ? 'h-8' : 'min-h-[36px]'
+              }`}
             >
               <PlusCircle className="w-3.5 h-3.5" />
-              <span>Nouvelle Vente</span>
+              <span>Vendre</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsHeaderMinimized((v) => !v)}
+              className={`w-8 flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 cursor-pointer ${
+                isHeaderMinimized ? 'h-8' : 'h-9'
+              }`}
+              title={isHeaderMinimized ? "Agrandir l'en-tête" : "Minimiser l'en-tête"}
+              aria-label={isHeaderMinimized ? "Agrandir l'en-tête" : "Minimiser l'en-tête"}
+            >
+              {isHeaderMinimized ? (
+                <ChevronDown className="w-4 h-4" />
+              ) : (
+                <ChevronUp className="w-4 h-4" />
+              )}
             </button>
           </div>
         </div>
+      </header>
 
-        {/* Universal Horizontal Navigation Track: Left ⇄ Right ("Aller de gauche à droite") */}
-        <div className="border-t border-slate-200 bg-slate-50/95 backdrop-blur-md px-2 sm:px-4 py-2 flex items-center gap-1.5 shadow-2xs">
-          <button
-            type="button"
-            onClick={handleScrollNavLeft}
-            className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition shadow-2xs shrink-0 cursor-pointer"
-            title="Faire défiler la barre vers la gauche"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-
+      {/* Conteneur principal unifié : DistriBoissons + Menu Principal réunis à gauche et Page Continue fluide à droite */}
+      <div className="flex-1 max-w-[1440px] w-full mx-auto px-3 sm:px-6 lg:px-8 pt-3 sm:pt-5 pb-24 md:pb-10 flex flex-col md:flex-row items-start gap-5 lg:gap-6">
+        {/* Panneau Latéral Unifié : DistriBoissons + Menu Principal (Desktop / Tablette) */}
+        <aside
+          className={`hidden md:flex md:flex-col shrink-0 md:sticky md:top-4 md:max-h-[calc(100vh-2rem)] bg-white border border-slate-200 rounded-2xl transition-[width] duration-200 ease-out overflow-hidden ${
+            isSidebarMinimized ? 'w-[76px] p-2' : 'w-64 lg:w-[272px] p-3.5'
+          }`}
+        >
+          {/* Bloc DistriBoissons intégré directement en haut du Menu Principal */}
           <div
-            ref={navTrackRef}
-            className="flex-1 flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar scroll-smooth py-0.5"
+            className={`pb-3 mb-2.5 border-b border-slate-100 flex items-center ${
+              isSidebarMinimized ? 'flex-col gap-2' : 'justify-between gap-2'
+            }`}
           >
-            {NAVIGATION_TABS.map((tab, idx) => {
+            <button
+              type="button"
+              onClick={scrollToTop}
+              className={`flex items-center gap-2.5 min-w-0 text-left cursor-pointer ${
+                isSidebarMinimized ? 'justify-center' : ''
+              }`}
+              title={`${settings.companyName || 'DistriBoissons Pro'} · Revenir en haut`}
+            >
+              <span className="w-9 h-9 rounded-xl bg-amber-600 text-white flex items-center justify-center shrink-0">
+                <WaterBottleLogo className="w-5 h-5 text-white" />
+              </span>
+              {!isSidebarMinimized && (
+                <div className="min-w-0 leading-tight">
+                  <span className="text-sm font-bold tracking-tight text-slate-900 block truncate">
+                    {settings.companyName || 'DistriBoissons Pro'}
+                  </span>
+                  <span className="text-[11px] text-slate-500 block truncate">
+                    Boissons &amp; Consignes
+                  </span>
+                </div>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsSidebarMinimized((v) => !v)}
+              className="min-h-[36px] min-w-[36px] px-2 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 flex items-center justify-center gap-1 text-xs font-semibold transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+              title={isSidebarMinimized ? 'Agrandir le menu' : 'Minimiser cette partie'}
+              aria-label={isSidebarMinimized ? 'Agrandir le menu' : 'Minimiser cette partie'}
+            >
+              {isSidebarMinimized ? (
+                <PanelLeftOpen className="w-4 h-4 text-amber-600" />
+              ) : (
+                <PanelLeftClose className="w-4 h-4 text-slate-500" />
+              )}
+            </button>
+          </div>
+
+          {/* Bouton principal Nouvelle Vente dans le même panneau */}
+          <div className="mb-3">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedSellerForSale(undefined);
+                setSelectedCustomerForSale(null);
+                setIsNewSaleOpen(true);
+              }}
+              className={`w-full min-h-[42px] rounded-xl text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer ${
+                isSidebarMinimized ? 'px-2' : 'px-3.5'
+              }`}
+              title="Nouvelle Vente"
+            >
+              <PlusCircle className="w-4 h-4 shrink-0" />
+              {!isSidebarMinimized && <span>Nouvelle Vente</span>}
+            </button>
+          </div>
+
+          {/* Titre Menu Principal + Contrôle Tout réduire */}
+          {!isSidebarMinimized && (
+            <div className="px-2 pb-1.5 flex items-center justify-between text-[11px] font-semibold text-slate-400">
+              <span>Menu Principal</span>
+              {viewMode === 'continuous' && (
+                <button
+                  type="button"
+                  onClick={handleToggleAllSections}
+                  className="text-amber-700 hover:text-amber-800 font-semibold cursor-pointer"
+                >
+                  {allSectionsMinimized ? 'Tout déplier' : 'Tout réduire'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Liste des sections du Menu Principal avec défilement interne sécurisé si écran court */}
+          <nav
+            aria-label="Navigation principale verticale"
+            className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-1 pr-0.5"
+          >
+            {NAVIGATION_TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
@@ -1204,616 +654,829 @@ export default function App() {
                   type="button"
                   data-tab-id={tab.id}
                   onClick={() => handleTabSelect(tab.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap flex items-center gap-2 transition-all cursor-pointer shrink-0 ${
+                  className={`w-full min-h-[42px] rounded-xl text-xs font-semibold flex items-center transition-colors cursor-pointer whitespace-nowrap ${
+                    isSidebarMinimized ? 'justify-center px-2 py-2' : 'px-3 py-2 gap-3 text-left'
+                  } ${
                     isActive
-                      ? 'bg-amber-600 text-white shadow-xs'
-                      : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/80'
+                      ? 'bg-amber-600 text-white'
+                      : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
                   }`}
-                  title={`${tab.label} : ${tab.description}`}
+                  title={`${tab.label} · ${tab.description}`}
                 >
-                  <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-amber-600'}`} />
-                  <span>{tab.label}</span>
-                  <span
-                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                      isActive ? 'bg-amber-700 text-amber-100' : 'bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    {idx + 1}
-                  </span>
+                  <Icon
+                    className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-amber-600'}`}
+                  />
+                  {!isSidebarMinimized && (
+                    <div className="min-w-0 flex-1">
+                      <span className="block truncate">{tab.label}</span>
+                      <span
+                        className={`block text-[10px] truncate ${
+                          isActive ? 'text-amber-100' : 'text-slate-400 font-normal'
+                        }`}
+                      >
+                        {tab.description}
+                      </span>
+                    </div>
+                  )}
                 </button>
               );
             })}
-          </div>
+          </nav>
 
-          <button
-            type="button"
-            onClick={handleScrollNavRight}
-            className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition shadow-2xs shrink-0 cursor-pointer"
-            title="Faire défiler la barre vers la droite"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      </header>
-
-      {/* Main Content Workspace (Single Page, Fluid Navigation) */}
-      <main
-        className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
-        <React.Suspense fallback={<ViewLoadingFallback />}>
-          {viewMode === 'tabs' ? (
-            /* Mode 1: Navigation Onglets Fluides (Gauche ⇄ Droite avec Swipe & Animation) */
-            <div
-              key={activeTab}
-              className={`space-y-6 ${
-                slideDirection === 'right' ? 'animate-slide-right' : 'animate-slide-left'
+          {/* Bas du panneau unifié : Cloud Synchro & Profil Collaborateur */}
+          <div className="pt-3 mt-2 border-t border-slate-100 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => setIsSyncCenterOpen(true)}
+              className={`w-full min-h-[38px] rounded-xl border text-xs font-semibold flex items-center transition-colors cursor-pointer ${
+                isSidebarMinimized ? 'justify-center px-2' : 'justify-between px-3'
+              } ${
+                isCloudConnected
+                  ? 'bg-emerald-50 hover:bg-emerald-100/80 border-emerald-200 text-emerald-800'
+                  : 'bg-amber-50 hover:bg-amber-100/80 border-amber-200 text-amber-800'
               }`}
+              title={`Synchronisation Cloud ${lastSyncTime ? `(${lastSyncTime})` : ''}`}
             >
-              {activeTab === 'dashboard' && (
-                <OverviewDashboard
-                  products={products}
-                  sellers={sellers}
-                  sales={sales}
-                  onOpenNewSale={() => {
-                    setSelectedSellerForSale(currentUser?.id || undefined);
-                    setSelectedCustomerForSale(null);
-                    setIsNewSaleOpen(true);
-                  }}
-                  onNavigateToStocks={() => handleTabSelect('inventory')}
-                  onNavigateToSellers={() => handleTabSelect('users')}
-                  onNavigateToSales={() => handleTabSelect('sales')}
-                  onNavigateToInvoices={() => handleTabSelect('invoices')}
-                  onNavigateToExchange={() => handleTabSelect('exchange')}
-                  exchangeRates={exchangeRates}
-                  settings={settings}
-                  onUpdateSettings={handleSaveSettings}
-                  onNavigateToSettings={() => handleTabSelect('settings')}
-                  onRestock={handleRestock}
-                  onPrintSale={setSaleToPrint}
-                  currentUser={currentUser}
-                  onOpenLoginModal={() => setIsLoginModalOpen(true)}
-                  isAdmin={isAdmin}
-                />
+              <span className="flex items-center gap-2 min-w-0">
+                <Cloud className="w-4 h-4 shrink-0" />
+                {!isSidebarMinimized && (
+                  <span className="truncate">
+                    {isCloudConnected ? 'Cloud connecté' : 'Mode hors-ligne'}
+                  </span>
+                )}
+              </span>
+              {!isSidebarMinimized && lastSyncTime && (
+                <span className="text-[10px] font-mono tabular-nums opacity-75">
+                  {lastSyncTime}
+                </span>
               )}
+            </button>
 
-              {(activeTab === 'inventory' || activeTab === 'stocks') && (
-                <StockManagementView
-                  products={products}
-                  movements={movements}
-                  onUpdateProduct={handleUpdateProduct}
-                  onAddProduct={handleAddProduct}
-                  onRestock={handleRestock}
-                  onDeleteProduct={handleDeleteProduct}
-                  isAdmin={isAdmin}
-                />
-              )}
-
-              {activeTab === 'customers' && (
-                <CustomersManagementView
-                  customers={customers}
-                  onAddCustomer={handleAddCustomer}
-                  onUpdateCustomer={handleUpdateCustomer}
-                  onStartSaleForCustomer={handleStartSaleForCustomer}
-                />
-              )}
-
-              {activeTab === 'sales' && (
-                <SalesHistoryView
-                  sales={sales}
-                  sellers={sellers}
-                  products={products}
-                  customers={customers}
-                  onCompleteSale={handleCompleteSale}
-                  onOpenNewSale={() => {
-                    setSelectedSellerForSale(currentUser?.id || undefined);
-                    setSelectedCustomerForSale(null);
-                    setIsNewSaleOpen(true);
-                  }}
-                  onPrintSale={setSaleToPrint}
-                  defaultTaxRate={settings.defaultTaxRate}
-                />
-              )}
-
-              {activeTab === 'invoices' && (
-                <InvoicesManagementView
-                  sales={sales}
-                  sellers={sellers}
-                  products={products}
-                  customers={customers}
-                  settings={settings}
-                  exchangeRates={exchangeRates}
-                  onUpdateSaleStatus={handleUpdateSaleStatus}
-                  onOpenNewSale={() => {
-                    setSelectedSellerForSale(currentUser?.id || undefined);
-                    setSelectedCustomerForSale(null);
-                    setIsNewSaleOpen(true);
-                  }}
-                  onPrintSale={setSaleToPrint}
-                />
-              )}
-
-              {activeTab === 'exchange' && (
-                <CurrencyExchangeView
-                  rates={exchangeRates}
-                  transactions={exchangeTransactions}
-                  sellers={sellers}
-                  onUpdateRates={handleUpdateExchangeRates}
-                  onAddTransaction={handleAddExchangeTransaction}
-                  onDeleteTransaction={handleDeleteExchangeTransaction}
-                />
-              )}
-
-              {(activeTab === 'reports' || activeTab === 'profitability') && (
-                <FinancialReportsView
-                  sales={sales}
-                  products={products}
-                  sellers={sellers}
-                />
-              )}
-
-              {(activeTab === 'users' || activeTab === 'sellers') && (
-                <UsersManagementView
-                  sellers={sellers}
-                  sales={sales}
-                  onAddSeller={handleAddSeller}
-                  onUpdateSeller={handleUpdateSeller}
-                  onDeleteSeller={handleDeleteSeller}
-                  onOpenNewSaleForSeller={handleOpenSaleForSeller}
-                  currentUser={currentUser}
-                  onSelectCurrentUser={(u) => handleLoginSuccess(u)}
-                  onOpenLoginModal={() => setIsLoginModalOpen(true)}
-                  isAdmin={isAdmin}
-                />
-              )}
-
-              {activeTab === 'settings' && (
-                <SettingsManagementView
-                  settings={settings}
-                  sellers={sellers}
-                  onSaveSettings={handleSaveSettings}
-                  onResetAllData={handleResetAllData}
-                  onOpenMobileGuide={() => setIsMobileGuideOpen(true)}
-                  onOpenCloudSync={() => setIsSyncCenterOpen(true)}
-                />
-              )}
-
-              {/* Bottom Horizontal Stepper: Left ⇄ Right Navigation */}
-              <div className="pt-6 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+            {currentUser ? (
+              <div className="relative">
                 <button
                   type="button"
-                  onClick={handlePrevTab}
-                  className="px-4 py-2.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold flex items-center gap-2 transition shadow-xs cursor-pointer"
+                  onClick={() => setIsUserMenuOpen((v) => !v)}
+                  className={`w-full min-h-[42px] rounded-xl border border-slate-200 hover:border-amber-400 bg-white hover:bg-slate-50 flex items-center transition-colors cursor-pointer ${
+                    isSidebarMinimized ? 'justify-center p-1.5' : 'justify-between px-2.5 py-1.5 gap-2'
+                  }`}
+                  title={currentUser.name}
                 >
-                  <ChevronLeft className="w-4 h-4 text-amber-600" />
-                  <span>
-                    Précédent :{' '}
-                    {
-                      NAVIGATION_TABS[
-                        (NAVIGATION_TABS.findIndex((t) => t.id === activeTab) - 1 + NAVIGATION_TABS.length) %
-                          NAVIGATION_TABS.length
-                      ].label
-                    }
-                  </span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <img
+                      src={currentUser.avatar}
+                      alt={currentUser.name}
+                      className="w-7 h-7 rounded-full object-cover border border-amber-500/40 shrink-0"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                    {!isSidebarMinimized && (
+                      <div className="text-left leading-tight min-w-0">
+                        <span className="text-xs font-bold text-slate-800 block truncate">
+                          {currentUser.name}
+                        </span>
+                        <span className="text-[10px] text-slate-500 block truncate">
+                          {currentUser.role}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  {!isSidebarMinimized && <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
                 </button>
 
-                {/* Progress Dots Indicator */}
-                <div className="flex items-center gap-1.5">
-                  {NAVIGATION_TABS.map((t, idx) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => handleTabSelect(t.id)}
-                      className={`h-2 rounded-full transition-all cursor-pointer ${
-                        activeTab === t.id ? 'w-6 bg-amber-600' : 'w-2 bg-slate-300 hover:bg-slate-400'
-                      }`}
-                      title={`${idx + 1}. ${t.label}`}
-                    />
-                  ))}
-                  <span className="text-[11px] text-slate-500 font-mono ml-2">
-                    {NAVIGATION_TABS.findIndex((t) => t.id === activeTab) + 1} / {NAVIGATION_TABS.length}
-                  </span>
-                </div>
+                {isUserMenuOpen && (
+                  <div className="absolute bottom-full left-0 mb-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50">
+                    <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-3">
+                      <img
+                        src={currentUser.avatar}
+                        alt={currentUser.name}
+                        className="w-9 h-9 rounded-full object-cover border border-slate-200"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-900 truncate">
+                            {currentUser.name}
+                          </span>
+                          {isAdmin ? (
+                            <span className="text-[10px] font-semibold text-amber-700 flex items-center gap-0.5 shrink-0">
+                              <Crown className="w-2.5 h-2.5" />
+                              Admin
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-500 shrink-0">Commercial</span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate">{currentUser.role}</div>
+                      </div>
+                    </div>
 
+                    <div className="px-2 py-1.5">
+                      {isAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsUserMenuOpen(false);
+                            handleTabSelect('users');
+                          }}
+                          className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-amber-700 rounded-lg flex items-center gap-2 transition cursor-pointer"
+                        >
+                          <UserCog className="w-4 h-4 text-slate-400" />
+                          <span>Gestion de l&apos;Équipe</span>
+                        </button>
+                      ) : (
+                        <div className="px-3 py-2 text-[11px] text-slate-500 bg-slate-50 rounded-lg flex items-center gap-2 mb-1">
+                          <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>Accès Commercial restreint</span>
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
+                          setIsLoginModalOpen(true);
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-amber-700 rounded-lg flex items-center gap-2 transition cursor-pointer"
+                      >
+                        <ArrowLeftRight className="w-4 h-4 text-slate-400" />
+                        <span>Changer d&apos;utilisateur</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCurrentUser(INITIAL_SELLERS[0]);
+                          try {
+                            localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+                          } catch (e) {
+                            console.error(e);
+                          }
+                          setIsUserMenuOpen(false);
+                          setIsLoginModalOpen(true);
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 rounded-lg flex items-center gap-2 transition font-medium cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4 text-rose-500" />
+                        <span>Déconnexion</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsLoginModalOpen(true)}
+                className="w-full min-h-[40px] px-3 py-1.5 text-xs font-bold text-amber-950 bg-amber-400 hover:bg-amber-500 rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                {!isSidebarMinimized && <span>Connexion</span>}
+              </button>
+            )}
+          </div>
+        </aside>
+
+        {/* Zone de contenu active (Page Unique Continue ou Onglets) */}
+        <main
+          className="flex-1 min-w-0 w-full space-y-4"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
+          {/* Barre d'outils supérieure de la page unique (mode d'affichage, réduire/déplier tout, partage) */}
+          <div className="bg-white border border-slate-200 rounded-2xl px-3.5 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
+            {/* Fil d'activité / Section active */}
+            <div className="flex items-center gap-2 min-w-0 text-xs text-slate-600">
+              <span className="font-bold text-slate-900 truncate">
+                {NAVIGATION_TABS.find((t) => t.id === activeTab)?.label || 'Tableau de Bord'}
+              </span>
+              <span className="text-slate-300 hidden sm:inline" aria-hidden="true">
+                ·
+              </span>
+              <span className="text-slate-500 hidden sm:inline truncate">
+                {viewMode === 'continuous'
+                  ? 'Page unique continue — faites défiler librement'
+                  : 'Mode onglets isolés'}
+              </span>
+            </div>
+
+            {/* Contrôles rapides de la page */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Bascule Page Unique / Onglets */}
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
                 <button
                   type="button"
-                  onClick={handleNextTab}
-                  className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold flex items-center gap-2 transition shadow-xs cursor-pointer"
+                  onClick={() => setViewMode('continuous')}
+                  className={`px-2.5 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer ${
+                    viewMode === 'continuous'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
                 >
-                  <span>
-                    Suivant :{' '}
-                    {
-                      NAVIGATION_TABS[
-                        (NAVIGATION_TABS.findIndex((t) => t.id === activeTab) + 1) % NAVIGATION_TABS.length
-                      ].label
-                    }
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-amber-200" />
+                  <Layers className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Page Unique</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewMode('tabs');
+                    smoothScrollToY(0, 300);
+                  }}
+                  className={`px-2.5 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer ${
+                    viewMode === 'tabs'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <MoveHorizontal className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Onglets</span>
                 </button>
               </div>
+
+              {viewMode === 'continuous' && (
+                <button
+                  type="button"
+                  onClick={handleToggleAllSections}
+                  className="min-h-[34px] px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                  title={
+                    allSectionsMinimized
+                      ? 'Déplier toutes les parties'
+                      : 'Minimiser toutes les parties'
+                  }
+                >
+                  {allSectionsMinimized ? (
+                    <>
+                      <Maximize2 className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Tout déplier</span>
+                    </>
+                  ) : (
+                    <>
+                      <Minimize2 className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Tout minimiser</span>
+                    </>
+                  )}
+                </button>
+              )}
+
+              <div className="hidden sm:block">
+                <PWAInstallButton />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsShareModalOpen(true)}
+                className="hidden sm:flex min-h-[34px] px-2.5 py-1.5 text-xs font-semibold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors whitespace-nowrap items-center gap-1.5 cursor-pointer"
+              >
+                <Share2 className="w-3.5 h-3.5 text-amber-600" />
+                <span>Partager</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsMobileGuideOpen(true)}
+                className="hidden lg:flex min-h-[34px] px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors whitespace-nowrap items-center gap-1.5 cursor-pointer"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-blue-600" />
+                <span>App Mobile</span>
+              </button>
             </div>
-          ) : (
-            /* Mode 2: Vue Continue 1 Seule Page (Monter ↕ Descendre de façon fluide) */
-            <div className="space-y-16">
-              {/* Section 1: Dashboard */}
-              <section id="section-dashboard" className="scroll-mt-32 space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
-                      1
-                    </span>
-                    <div>
-                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-                        <LayoutDashboard className="w-5 h-5 text-amber-600" />
-                        <span>Tableau de Bord Global & Indicateurs Clés</span>
-                      </h2>
-                      <p className="text-xs text-slate-500">Chiffre d'affaires, stocks critiques et performances</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={scrollToTop}
-                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                    <span>Haut ↑</span>
-                  </button>
-                </div>
-                <OverviewDashboard
-                  products={products}
-                  sellers={sellers}
-                  sales={sales}
-                  onOpenNewSale={() => {
-                    setSelectedSellerForSale(currentUser?.id || undefined);
-                    setSelectedCustomerForSale(null);
-                    setIsNewSaleOpen(true);
-                  }}
-                  onNavigateToStocks={() => handleTabSelect('inventory')}
-                  onNavigateToSellers={() => handleTabSelect('users')}
-                  onNavigateToSales={() => handleTabSelect('sales')}
-                  onNavigateToInvoices={() => handleTabSelect('invoices')}
-                  onNavigateToExchange={() => handleTabSelect('exchange')}
-                  exchangeRates={exchangeRates}
-                  settings={settings}
-                  onUpdateSettings={handleSaveSettings}
-                  onNavigateToSettings={() => handleTabSelect('settings')}
-                  onRestock={handleRestock}
-                  onPrintSale={setSaleToPrint}
-                  currentUser={currentUser}
-                  onOpenLoginModal={() => setIsLoginModalOpen(true)}
-                  isAdmin={isAdmin}
-                />
-              </section>
+          </div>
 
-              {/* Section 2: Inventaire Boissons */}
-              <section id="section-inventory" className="scroll-mt-32 space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
-                      2
-                    </span>
-                    <div>
-                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-                        <Package className="w-5 h-5 text-amber-600" />
-                        <span>Inventaire des Boissons, Fûts & Casiers</span>
-                      </h2>
-                      <p className="text-xs text-slate-500">Gestion des stocks en temps réel et réapprovisionnements</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={scrollToTop}
-                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                    <span>Haut ↑</span>
-                  </button>
-                </div>
-                <StockManagementView
-                  products={products}
-                  movements={movements}
-                  onUpdateProduct={handleUpdateProduct}
-                  onAddProduct={handleAddProduct}
-                  onRestock={handleRestock}
-                  onDeleteProduct={handleDeleteProduct}
-                  isAdmin={isAdmin}
-                />
-              </section>
-
-              {/* Section 3: Ventes */}
-              <section id="section-sales" className="scroll-mt-32 space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
-                      3
-                    </span>
-                    <div>
-                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-                        <ShoppingBag className="w-5 h-5 text-amber-600" />
-                        <span>Historique & Commandes de Ventes</span>
-                      </h2>
-                      <p className="text-xs text-slate-500">Ventes directes, livraisons et tickets de caisse</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={scrollToTop}
-                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                    <span>Haut ↑</span>
-                  </button>
-                </div>
-                <SalesHistoryView
-                  sales={sales}
-                  sellers={sellers}
-                  products={products}
-                  customers={customers}
-                  onCompleteSale={handleCompleteSale}
-                  onOpenNewSale={() => {
-                    setSelectedSellerForSale(currentUser?.id || undefined);
-                    setSelectedCustomerForSale(null);
-                    setIsNewSaleOpen(true);
-                  }}
-                  onPrintSale={setSaleToPrint}
-                  defaultTaxRate={settings.defaultTaxRate}
-                />
-              </section>
-
-              {/* Section 4: Factures */}
-              <section id="section-invoices" className="scroll-mt-32 space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
-                      4
-                    </span>
-                    <div>
-                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-                        <FileText className="w-5 h-5 text-amber-600" />
-                        <span>Facturation, Créances & Règlements Clients</span>
-                      </h2>
-                      <p className="text-xs text-slate-500">Statuts de paiement, encaissements et suivi des échéances</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={scrollToTop}
-                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                    <span>Haut ↑</span>
-                  </button>
-                </div>
-                <InvoicesManagementView
-                  sales={sales}
-                  sellers={sellers}
-                  products={products}
-                  customers={customers}
-                  settings={settings}
-                  exchangeRates={exchangeRates}
-                  onUpdateSaleStatus={handleUpdateSaleStatus}
-                  onOpenNewSale={() => {
-                    setSelectedSellerForSale(currentUser?.id || undefined);
-                    setSelectedCustomerForSale(null);
-                    setIsNewSaleOpen(true);
-                  }}
-                  onPrintSale={setSaleToPrint}
-                />
-              </section>
-
-              {/* Section 5: Clients & Consignes */}
-              <section id="section-customers" className="scroll-mt-32 space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
-                      5
-                    </span>
-                    <div>
-                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-                        <Users className="w-5 h-5 text-amber-600" />
-                        <span>Répertoire Clients & Suivi des Consignes</span>
-                      </h2>
-                      <p className="text-xs text-slate-500">Fûts inox en circulation, coordonnées et encours autorisés</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={scrollToTop}
-                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                    <span>Haut ↑</span>
-                  </button>
-                </div>
-                <CustomersManagementView
-                  customers={customers}
-                  onAddCustomer={handleAddCustomer}
-                  onUpdateCustomer={handleUpdateCustomer}
-                  onStartSaleForCustomer={handleStartSaleForCustomer}
-                />
-              </section>
-
-              {/* Section 6: Change Devises */}
-              <section id="section-exchange" className="scroll-mt-32 space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
-                      6
-                    </span>
-                    <div>
-                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-                        <ArrowLeftRight className="w-5 h-5 text-amber-600" />
-                        <span>Bureau de Change Multi-Devises (USD / DOP en Gourdes)</span>
-                      </h2>
-                      <p className="text-xs text-slate-500">Taux d'achat et de vente, conversion automatique en caisse</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={scrollToTop}
-                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                    <span>Haut ↑</span>
-                  </button>
-                </div>
-                <CurrencyExchangeView
-                  rates={exchangeRates}
-                  transactions={exchangeTransactions}
-                  sellers={sellers}
-                  onUpdateRates={handleUpdateExchangeRates}
-                  onAddTransaction={handleAddExchangeTransaction}
-                  onDeleteTransaction={handleDeleteExchangeTransaction}
-                />
-              </section>
-
-              {/* Section 7: Rapports Financiers */}
-              <section id="section-reports" className="scroll-mt-32 space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
-                      7
-                    </span>
-                    <div>
-                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-                        <FileSpreadsheet className="w-5 h-5 text-amber-600" />
-                        <span>Rapports Financiers & Rentabilité Globale</span>
-                      </h2>
-                      <p className="text-xs text-slate-500">Marges brutes, statistiques et analyse de rentabilité</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={scrollToTop}
-                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                    <span>Haut ↑</span>
-                  </button>
-                </div>
-                <FinancialReportsView
-                  sales={sales}
-                  products={products}
-                  sellers={sellers}
-                />
-              </section>
-
-              {/* Section 8: Utilisateurs & Équipe */}
-              <section id="section-users" className="scroll-mt-32 space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
-                      8
-                    </span>
-                    <div>
-                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-                        <UserCog className="w-5 h-5 text-amber-600" />
-                        <span>Utilisateurs, Vendeurs & Objectifs Commerciaux</span>
-                      </h2>
-                      <p className="text-xs text-slate-500">Gestion de l'équipe commerciale et commissions</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={scrollToTop}
-                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                    <span>Haut ↑</span>
-                  </button>
-                </div>
-                <UsersManagementView
-                  sellers={sellers}
-                  sales={sales}
-                  onAddSeller={handleAddSeller}
-                  onUpdateSeller={handleUpdateSeller}
-                  onDeleteSeller={handleDeleteSeller}
-                  onOpenNewSaleForSeller={handleOpenSaleForSeller}
-                  currentUser={currentUser}
-                  onSelectCurrentUser={(u) => handleLoginSuccess(u)}
-                  onOpenLoginModal={() => setIsLoginModalOpen(true)}
-                  isAdmin={isAdmin}
-                />
-              </section>
-
-              {/* Section 9: Paramètres */}
-              <section id="section-settings" className="scroll-mt-32 space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <span className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">
-                      9
-                    </span>
-                    <div>
-                      <h2 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-                        <Settings className="w-5 h-5 text-amber-600" />
-                        <span>Paramètres de l'Entreprise, Facturation & Synchronisation</span>
-                      </h2>
-                      <p className="text-xs text-slate-500">Coordonnées, consignes, taxes et protection des données</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={scrollToTop}
-                    className="text-xs text-amber-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                    <span>Haut ↑</span>
-                  </button>
-                </div>
-                <SettingsManagementView
-                  settings={settings}
-                  sellers={sellers}
-                  onSaveSettings={handleSaveSettings}
-                  onResetAllData={handleResetAllData}
-                  onOpenMobileGuide={() => setIsMobileGuideOpen(true)}
-                  onOpenCloudSync={() => setIsSyncCenterOpen(true)}
-                />
-              </section>
-            </div>
+          {/* Bannières d'état : erreur réseau ou confirmation d'action */}
+          {syncError && (
+            <StatusFeedbackBanner
+              type="error"
+              message={syncError}
+              onDismiss={clearSyncError}
+              onRetry={retryCloudSync}
+            />
           )}
-        </React.Suspense>
-      </main>
+          {actionSuccess && (
+            <StatusFeedbackBanner
+              type="success"
+              message={actionSuccess}
+              onDismiss={clearActionSuccess}
+            />
+          )}
 
-      {/* Floating Quick Navigation & Scroll Bar: Monter ↕ Descendre et Gauche ⇄ Droite */}
-      <div className="fixed bottom-5 right-5 z-40 flex items-center gap-1 bg-slate-900/90 hover:bg-slate-900 text-white p-1.5 rounded-2xl shadow-xl backdrop-blur-md border border-slate-700/60 transition-transform">
-        <button
-          type="button"
-          onClick={handlePrevTab}
-          className="p-2 hover:bg-white/15 rounded-xl transition text-slate-300 hover:text-white cursor-pointer"
-          title="Onglet précédent (Gauche ←)"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-        <button
-          type="button"
-          onClick={scrollToTop}
-          className="px-2.5 py-1.5 hover:bg-white/15 rounded-xl transition text-slate-300 hover:text-white flex items-center gap-1 text-xs font-semibold cursor-pointer"
-          title="Monter en haut de page (Fluide ↑)"
-        >
-          <ArrowUp className="w-4 h-4 text-amber-400" />
-          <span className="hidden sm:inline">Haut</span>
-        </button>
-        <button
-          type="button"
-          onClick={scrollToBottom}
-          className="px-2.5 py-1.5 hover:bg-white/15 rounded-xl transition text-slate-300 hover:text-white flex items-center gap-1 text-xs font-semibold cursor-pointer"
-          title="Descendre en bas de page (Fluide ↓)"
-        >
-          <ArrowDown className="w-4 h-4 text-amber-400" />
-          <span className="hidden sm:inline">Bas</span>
-        </button>
-        <button
-          type="button"
-          onClick={handleNextTab}
-          className="p-2 hover:bg-white/15 rounded-xl transition text-slate-300 hover:text-white cursor-pointer"
-          title="Onglet suivant (Droite →)"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
+          {isInitialLoading && products.length === 0 ? (
+            <DashboardSkeleton />
+          ) : (
+            <React.Suspense fallback={<ViewLoadingFallback />}>
+              {viewMode === 'tabs' ? (
+                <div
+                  key={activeTab}
+                  className={`space-y-6 ${
+                    slideDirection === 'right' ? 'animate-slide-right' : 'animate-slide-left'
+                  }`}
+                >
+                  {activeTab === 'dashboard' && (
+                    <DashboardPage
+                      products={products}
+                      sellers={sellers}
+                      sales={sales}
+                      onOpenNewSale={() => {
+                        setSelectedSellerForSale(currentUser?.id || undefined);
+                        setSelectedCustomerForSale(null);
+                        setIsNewSaleOpen(true);
+                      }}
+                      onNavigateToStocks={() => handleTabSelect('inventory')}
+                      onNavigateToSellers={() => handleTabSelect('users')}
+                      onNavigateToSales={() => handleTabSelect('sales')}
+                      onNavigateToInvoices={() => handleTabSelect('invoices')}
+                      onNavigateToExchange={() => handleTabSelect('exchange')}
+                      exchangeRates={exchangeRates}
+                      settings={settings}
+                      onUpdateSettings={handleSaveSettings}
+                      onNavigateToSettings={() => handleTabSelect('settings')}
+                      onRestock={handleRestock}
+                      onUpdateProduct={handleUpdateProduct}
+                      onPrintSale={setSaleToPrint}
+                      currentUser={currentUser}
+                      onOpenLoginModal={() => setIsLoginModalOpen(true)}
+                      isAdmin={isAdmin}
+                    />
+                  )}
+
+                  {(activeTab === 'inventory' || activeTab === 'stocks') && (
+                    <InventoryPage
+                      products={products}
+                      movements={movements}
+                      customers={customers}
+                      settings={settings}
+                      onUpdateProduct={handleUpdateProduct}
+                      onAddProduct={handleAddProduct}
+                      onRestock={handleRestock}
+                      onDeleteProduct={handleDeleteProduct}
+                      isAdmin={isAdmin}
+                    />
+                  )}
+
+                  {activeTab === 'customers' && (
+                    <CustomersPage
+                      customers={customers}
+                      onAddCustomer={handleAddCustomer}
+                      onUpdateCustomer={handleUpdateCustomer}
+                      onStartSaleForCustomer={handleStartSaleForCustomer}
+                    />
+                  )}
+
+                  {activeTab === 'sales' && (
+                    <SalesPage
+                      sales={sales}
+                      sellers={sellers}
+                      products={products}
+                      customers={customers}
+                      onCompleteSale={handleCompleteSale}
+                      onOpenNewSale={() => {
+                        setSelectedSellerForSale(currentUser?.id || undefined);
+                        setSelectedCustomerForSale(null);
+                        setIsNewSaleOpen(true);
+                      }}
+                      onPrintSale={setSaleToPrint}
+                      defaultTaxRate={settings.defaultTaxRate}
+                    />
+                  )}
+
+                  {activeTab === 'invoices' && (
+                    <InvoicesPage
+                      sales={sales}
+                      sellers={sellers}
+                      products={products}
+                      customers={customers}
+                      settings={settings}
+                      exchangeRates={exchangeRates}
+                      onUpdateSaleStatus={handleUpdateSaleStatus}
+                      onOpenNewSale={() => {
+                        setSelectedSellerForSale(currentUser?.id || undefined);
+                        setSelectedCustomerForSale(null);
+                        setIsNewSaleOpen(true);
+                      }}
+                      onPrintSale={setSaleToPrint}
+                    />
+                  )}
+
+                  {activeTab === 'exchange' && (
+                    <ExchangePage
+                      rates={exchangeRates}
+                      transactions={exchangeTransactions}
+                      sellers={sellers}
+                      onUpdateRates={handleUpdateExchangeRates}
+                      onAddTransaction={handleAddExchangeTransaction}
+                      onDeleteTransaction={handleDeleteExchangeTransaction}
+                    />
+                  )}
+
+                  {(activeTab === 'reports' || activeTab === 'profitability') && (
+                    <ReportsPage sales={sales} products={products} sellers={sellers} />
+                  )}
+
+                  {(activeTab === 'users' || activeTab === 'sellers') && (
+                    <UsersPage
+                      sellers={sellers}
+                      sales={sales}
+                      onAddSeller={handleAddSeller}
+                      onUpdateSeller={handleUpdateSeller}
+                      onDeleteSeller={handleDeleteSeller}
+                      onOpenNewSaleForSeller={handleOpenSaleForSeller}
+                      currentUser={currentUser}
+                      onSelectCurrentUser={(u) => handleLoginSuccess(u)}
+                      onOpenLoginModal={() => setIsLoginModalOpen(true)}
+                      isAdmin={isAdmin}
+                    />
+                  )}
+
+                  {activeTab === 'settings' && (
+                    <SettingsPage
+                      settings={settings}
+                      sellers={sellers}
+                      onSaveSettings={handleSaveSettings}
+                      onResetAllData={handleResetAllData}
+                      onOpenMobileGuide={() => setIsMobileGuideOpen(true)}
+                      onOpenCloudSync={() => setIsSyncCenterOpen(true)}
+                    />
+                  )}
+
+                  {/* Barre de navigation rapide entre onglets */}
+                  <div className="pt-6 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <button
+                      type="button"
+                      onClick={handlePrevTab}
+                      className="min-h-[42px] px-4 py-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold flex items-center gap-2 transition shadow-xs cursor-pointer"
+                    >
+                      <ChevronLeft className="w-4 h-4 text-amber-600" />
+                      <span className="truncate max-w-[140px] sm:max-w-none">
+                        {
+                          NAVIGATION_TABS[
+                            (NAVIGATION_TABS.findIndex((t) => t.id === activeTab) -
+                              1 +
+                              NAVIGATION_TABS.length) %
+                              NAVIGATION_TABS.length
+                          ].shortLabel
+                        }
+                      </span>
+                    </button>
+
+                    <div className="hidden sm:flex items-center gap-1.5">
+                      {NAVIGATION_TABS.map((t, idx) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => handleTabSelect(t.id)}
+                          className={`h-2 rounded-full transition-all cursor-pointer ${
+                            activeTab === t.id
+                              ? 'w-6 bg-amber-600'
+                              : 'w-2 bg-slate-300 hover:bg-slate-400'
+                          }`}
+                          title={`${idx + 1}. ${t.label}`}
+                        />
+                      ))}
+                      <span className="text-[11px] text-slate-500 font-mono ml-2 tabular-nums">
+                        {NAVIGATION_TABS.findIndex((t) => t.id === activeTab) + 1} /{' '}
+                        {NAVIGATION_TABS.length}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleNextTab}
+                      className="min-h-[42px] px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold flex items-center gap-2 transition shadow-xs cursor-pointer"
+                    >
+                      <span className="truncate max-w-[140px] sm:max-w-none">
+                        {
+                          NAVIGATION_TABS[
+                            (NAVIGATION_TABS.findIndex((t) => t.id === activeTab) + 1) %
+                              NAVIGATION_TABS.length
+                          ].shortLabel
+                        }
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-amber-200" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Mode Page Unique Continue : toutes les sections empilées et minimisables sur une seule page fluide */
+                <div className="space-y-6">
+                  {NAVIGATION_TABS.map((tab) => {
+                    const isMinimized = Boolean(collapsedSections[tab.id]);
+                    const isActive = activeTab === tab.id;
+
+                    return (
+                      <CollapsibleSection
+                        key={tab.id}
+                        id={`section-${tab.id}`}
+                        title={tab.label}
+                        description={tab.description}
+                        summaryText={sectionSummaries[tab.id]}
+                        icon={tab.icon}
+                        isMinimized={isMinimized}
+                        onToggleMinimize={() => toggleSectionMinimized(tab.id)}
+                        isActive={isActive}
+                      >
+                        {tab.id === 'dashboard' && (
+                          <DashboardPage
+                            products={products}
+                            sellers={sellers}
+                            sales={sales}
+                            onOpenNewSale={() => {
+                              setSelectedSellerForSale(currentUser?.id || undefined);
+                              setSelectedCustomerForSale(null);
+                              setIsNewSaleOpen(true);
+                            }}
+                            onNavigateToStocks={() => handleTabSelect('inventory')}
+                            onNavigateToSellers={() => handleTabSelect('users')}
+                            onNavigateToSales={() => handleTabSelect('sales')}
+                            onNavigateToInvoices={() => handleTabSelect('invoices')}
+                            onNavigateToExchange={() => handleTabSelect('exchange')}
+                            exchangeRates={exchangeRates}
+                            settings={settings}
+                            onUpdateSettings={handleSaveSettings}
+                            onNavigateToSettings={() => handleTabSelect('settings')}
+                            onRestock={handleRestock}
+                            onUpdateProduct={handleUpdateProduct}
+                            onPrintSale={setSaleToPrint}
+                            currentUser={currentUser}
+                            onOpenLoginModal={() => setIsLoginModalOpen(true)}
+                            isAdmin={isAdmin}
+                          />
+                        )}
+
+                        {tab.id === 'inventory' && (
+                          <InventoryPage
+                            products={products}
+                            movements={movements}
+                            customers={customers}
+                            settings={settings}
+                            onUpdateProduct={handleUpdateProduct}
+                            onAddProduct={handleAddProduct}
+                            onRestock={handleRestock}
+                            onDeleteProduct={handleDeleteProduct}
+                            isAdmin={isAdmin}
+                          />
+                        )}
+
+                        {tab.id === 'sales' && (
+                          <SalesPage
+                            sales={sales}
+                            sellers={sellers}
+                            products={products}
+                            customers={customers}
+                            onCompleteSale={handleCompleteSale}
+                            onOpenNewSale={() => {
+                              setSelectedSellerForSale(currentUser?.id || undefined);
+                              setSelectedCustomerForSale(null);
+                              setIsNewSaleOpen(true);
+                            }}
+                            onPrintSale={setSaleToPrint}
+                            defaultTaxRate={settings.defaultTaxRate}
+                          />
+                        )}
+
+                        {tab.id === 'invoices' && (
+                          <InvoicesPage
+                            sales={sales}
+                            sellers={sellers}
+                            products={products}
+                            customers={customers}
+                            settings={settings}
+                            exchangeRates={exchangeRates}
+                            onUpdateSaleStatus={handleUpdateSaleStatus}
+                            onOpenNewSale={() => {
+                              setSelectedSellerForSale(currentUser?.id || undefined);
+                              setSelectedCustomerForSale(null);
+                              setIsNewSaleOpen(true);
+                            }}
+                            onPrintSale={setSaleToPrint}
+                          />
+                        )}
+
+                        {tab.id === 'customers' && (
+                          <CustomersPage
+                            customers={customers}
+                            onAddCustomer={handleAddCustomer}
+                            onUpdateCustomer={handleUpdateCustomer}
+                            onStartSaleForCustomer={handleStartSaleForCustomer}
+                          />
+                        )}
+
+                        {tab.id === 'exchange' && (
+                          <ExchangePage
+                            rates={exchangeRates}
+                            transactions={exchangeTransactions}
+                            sellers={sellers}
+                            onUpdateRates={handleUpdateExchangeRates}
+                            onAddTransaction={handleAddExchangeTransaction}
+                            onDeleteTransaction={handleDeleteExchangeTransaction}
+                          />
+                        )}
+
+                        {tab.id === 'reports' && (
+                          <ReportsPage sales={sales} products={products} sellers={sellers} />
+                        )}
+
+                        {tab.id === 'users' && (
+                          <UsersPage
+                            sellers={sellers}
+                            sales={sales}
+                            onAddSeller={handleAddSeller}
+                            onUpdateSeller={handleUpdateSeller}
+                            onDeleteSeller={handleDeleteSeller}
+                            onOpenNewSaleForSeller={handleOpenSaleForSeller}
+                            currentUser={currentUser}
+                            onSelectCurrentUser={(u) => handleLoginSuccess(u)}
+                            onOpenLoginModal={() => setIsLoginModalOpen(true)}
+                            isAdmin={isAdmin}
+                          />
+                        )}
+
+                        {tab.id === 'settings' && (
+                          <SettingsPage
+                            settings={settings}
+                            sellers={sellers}
+                            onSaveSettings={handleSaveSettings}
+                            onResetAllData={handleResetAllData}
+                            onOpenMobileGuide={() => setIsMobileGuideOpen(true)}
+                            onOpenCloudSync={() => setIsSyncCenterOpen(true)}
+                          />
+                        )}
+                      </CollapsibleSection>
+                    );
+                  })}
+                </div>
+              )}
+            </React.Suspense>
+          )}
+        </main>
       </div>
 
-      {/* Lazy Modals loaded on-demand */}
+      {/* Barre de navigation inférieure fixe sur Mobile (< md) */}
+      <nav
+        aria-label="Navigation rapide mobile"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 h-14 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 flex items-center justify-around shadow-lg"
+      >
+        {mobilePrimaryTabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id && !isMobileDrawerOpen;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => handleTabSelect(tab.id)}
+              className={`min-h-[44px] flex-1 flex flex-col items-center justify-center gap-0.5 rounded-xl transition-colors cursor-pointer ${
+                isActive ? 'text-amber-700 bg-amber-50/80' : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              <span className="text-[10px] font-semibold truncate max-w-[64px]">
+                {tab.shortLabel}
+              </span>
+            </button>
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={() => setIsMobileDrawerOpen((v) => !v)}
+          className={`min-h-[44px] flex-1 flex flex-col items-center justify-center gap-0.5 rounded-xl transition-colors cursor-pointer ${
+            isMobileDrawerOpen || isOverflowTabActive
+              ? 'text-amber-700 bg-amber-50/80'
+              : 'text-slate-500 hover:text-slate-900'
+          }`}
+        >
+          {isMobileDrawerOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+          <span className="text-[10px] font-semibold">Menu</span>
+        </button>
+      </nav>
+
+      {/* Tiroir Mobile unifié DistriBoissons + Menu Principal */}
+      {isMobileDrawerOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end"
+          onClick={() => setIsMobileDrawerOpen(false)}
+        >
+          <div
+            className="w-full max-h-[85vh] overflow-y-auto bg-white rounded-t-3xl p-4 pb-6 shadow-2xl border-t border-slate-200 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <span className="w-8 h-8 rounded-xl bg-amber-600 text-white flex items-center justify-center">
+                  <WaterBottleLogo className="w-4 h-4 text-white" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    {settings.companyName || 'DistriBoissons Pro'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Menu Principal · {NAVIGATION_TABS.length} sections
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileDrawerOpen(false)}
+                className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl bg-slate-100 text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Contrôles Vue & Minimiser tout sur Mobile */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setViewMode(viewMode === 'continuous' ? 'tabs' : 'continuous')}
+                className="min-h-[42px] px-3 py-2 rounded-xl bg-slate-100 text-slate-800 text-xs font-semibold flex items-center justify-center gap-1.5"
+              >
+                <Layers className="w-4 h-4 text-amber-600" />
+                <span>{viewMode === 'continuous' ? 'Page Unique' : 'Vue Onglets'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleToggleAllSections}
+                className="min-h-[42px] px-3 py-2 rounded-xl bg-slate-100 text-slate-800 text-xs font-semibold flex items-center justify-center gap-1.5"
+              >
+                {allSectionsMinimized ? (
+                  <>
+                    <Maximize2 className="w-4 h-4 text-amber-600" />
+                    <span>Tout déplier</span>
+                  </>
+                ) : (
+                  <>
+                    <Minimize2 className="w-4 h-4 text-slate-600" />
+                    <span>Tout minimiser</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-1.5">
+              {NAVIGATION_TABS.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => handleTabSelect(tab.id)}
+                    className={`min-h-[46px] px-3.5 py-2 rounded-xl flex items-center justify-between text-left transition cursor-pointer ${
+                      isActive
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-slate-50 text-slate-800 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Icon
+                        className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-amber-600'}`}
+                      />
+                      <div>
+                        <span className="text-xs font-bold block">{tab.label}</span>
+                        <span
+                          className={`text-[11px] block ${
+                            isActive ? 'text-amber-100' : 'text-slate-500'
+                          }`}
+                        >
+                          {tab.description}
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight
+                      className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileDrawerOpen(false);
+                  setIsShareModalOpen(true);
+                }}
+                className="min-h-[44px] px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold flex items-center justify-center gap-2"
+              >
+                <Share2 className="w-4 h-4 text-amber-600" />
+                <span>Partager</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileDrawerOpen(false);
+                  setIsLoginModalOpen(true);
+                }}
+                className="min-h-[44px] px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-slate-800 text-xs font-semibold flex items-center justify-center gap-2"
+              >
+                <UserCog className="w-4 h-4 text-slate-600" />
+                <span>{currentUser ? currentUser.name : 'Connexion'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modales chargées à la demande */}
       <React.Suspense fallback={null}>
         {isNewSaleOpen && (
           <NewSaleModal
@@ -1883,45 +1546,47 @@ export default function App() {
         )}
       </React.Suspense>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white py-6 mt-12 text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+      {/* Pied de page sobre */}
+      <footer className="hidden md:block border-t border-slate-200 bg-white py-5 mt-8 text-xs text-slate-500">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-slate-800">
               {settings.companyName || 'DistriBoissons & Vins SAS'}
             </span>
-            <span>·</span>
+            <span aria-hidden="true">·</span>
             <span>SIRET: {settings.companySiret || '849 231 902 00028'}</span>
-            <span>·</span>
-            <span>Consignes: {settings.kegConsignmentDepositPrice || 3000} HTG/fût inox</span>
+            <span aria-hidden="true">·</span>
+            <span className="tabular-nums">
+              Consignes: {formatHTG(settings.kegConsignmentDepositPrice || 3000)}/fût inox
+            </span>
           </div>
 
           <div className="flex items-center gap-4">
             <button
               type="button"
-              onClick={() => setActiveTab('inventory')}
-              className="hover:text-slate-800 transition-colors"
+              onClick={() => handleTabSelect('inventory')}
+              className="hover:text-slate-800 transition-colors cursor-pointer whitespace-nowrap"
             >
-              Inventaire & Consignes
+              Inventaire &amp; Consignes
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('customers')}
-              className="hover:text-slate-800 transition-colors"
+              onClick={() => handleTabSelect('customers')}
+              className="hover:text-slate-800 transition-colors cursor-pointer whitespace-nowrap"
             >
               Clients CHR
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('reports')}
-              className="hover:text-slate-800 transition-colors"
+              onClick={() => handleTabSelect('reports')}
+              className="hover:text-slate-800 transition-colors cursor-pointer whitespace-nowrap"
             >
               Rapports
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('settings')}
-              className="hover:text-slate-800 transition-colors"
+              onClick={() => handleTabSelect('settings')}
+              className="hover:text-slate-800 transition-colors cursor-pointer whitespace-nowrap"
             >
               Paramètres
             </button>

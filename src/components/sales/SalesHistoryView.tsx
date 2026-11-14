@@ -28,6 +28,9 @@ import {
 } from 'lucide-react';
 import { formatHTG } from '../../utils/formatters';
 import { downloadInvoicePDF } from '../../utils/invoicePrinter';
+import { useTableControls } from '../../hooks/useTableControls';
+import { SortableHeader } from '../common/SortableHeader';
+import { TablePagination } from '../common/TablePagination';
 
 interface SalesHistoryViewProps {
   sales: Sale[];
@@ -263,20 +266,6 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({
     }
   };
 
-  const getCategoryBadgeClass = (category: string) => {
-    switch (category) {
-      case 'Bières & Cidres':
-        return 'bg-amber-50 text-amber-800 border-amber-200';
-      case 'Vins & Champagnes':
-        return 'bg-rose-50 text-rose-800 border-rose-200';
-      case 'Spiritueux':
-        return 'bg-orange-50 text-orange-800 border-orange-200';
-      case 'Eaux & Tonics':
-        return 'bg-cyan-50 text-cyan-800 border-cyan-200';
-      default:
-        return 'bg-blue-50 text-blue-800 border-blue-200';
-    }
-  };
 
   // ================= HISTORY DATA LOGIC =================
   const filteredSales = useMemo(() => {
@@ -297,6 +286,27 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({
     const avgMargin = totalHT > 0 ? Math.round((totalProfit / totalHT) * 100) : 0;
     return { totalHT, totalProfit, avgMargin, count: filteredSales.length };
   }, [filteredSales]);
+
+  // Tri multi-colonnes et pagination sur l'historique des ventes
+  type SaleSortField = 'date' | 'customerName' | 'sellerName' | 'paymentMethod' | 'totalHT' | 'netProfit' | 'marginPercent';
+  const {
+    sortField,
+    sortDirection,
+    toggleSort,
+    page,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedSales,
+    setPage,
+    setPageSize,
+  } = useTableControls<Sale, SaleSortField>({
+    items: filteredSales,
+    defaultSortField: 'date',
+    defaultSortDirection: 'desc',
+    defaultPageSize: 10,
+    getSortValue: (sale, field) => (field === 'date' ? new Date(sale.date).getTime() : sale[field]),
+  });
 
   // Export CSV
   const handleExportCSV = () => {
@@ -413,11 +423,11 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({
       </div>
 
       {/* ========================================================
-          MODE 1: POINT DE VENTE (PRODUITS EN CARRÉ + PANIER À DROITE)
+          MODE 1: POINT DE VENTE (PRODUITS EN LIGNES + PANIER À DROITE)
           ======================================================== */}
       {activeMode === 'pos' && (
         <div className="flex flex-col md:flex-row gap-5 items-start w-full">
-          {/* LEFT AREA: Catalog presented as SQUARE CARDS */}
+          {/* LEFT AREA: Catalog presented as horizontal rows */}
           <div className="flex-1 min-w-0 space-y-4 w-full">
             {/* Filter Bar */}
             <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-3">
@@ -458,7 +468,7 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({
                 </div>
               </div>
 
-              {/* Category Pills */}
+              {/* Category Tabs */}
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
                 {categories.map((cat) => {
                   const isSelected = posCategory === cat;
@@ -498,118 +508,114 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({
               </div>
             )}
 
-            {/* SQUARE CARDS GRID ("présenter les en forme de carré") */}
-            <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
-              {filteredProducts.map((p) => {
-                const inCart = cartItems.find((ci) => ci.productId === p.id);
-                const inCartQty = inCart?.quantity || 0;
-                const isOutOfStock = p.stock <= 0;
-                const isLowStock = !isOutOfStock && p.stock <= p.minStockAlert;
+            {/* LISTE DES PRODUITS EN LIGNES */}
+            {filteredProducts.length > 0 && (
+              <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden">
+                {filteredProducts.map((p) => {
+                  const inCart = cartItems.find((ci) => ci.productId === p.id);
+                  const inCartQty = inCart?.quantity || 0;
+                  const isOutOfStock = p.stock <= 0;
+                  const isLowStock = !isOutOfStock && p.stock <= p.minStockAlert;
 
-                return (
-                  <div
-                    key={p.id}
-                    onClick={() => {
-                      if (!isOutOfStock) handleAddToCart(p);
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => {
                         if (!isOutOfStock) handleAddToCart(p);
-                      }
-                    }}
-                    className={`aspect-square p-3 rounded-xl border flex flex-col justify-between text-left transition-all relative select-none group shadow-2xs ${
-                      isOutOfStock
-                        ? 'bg-slate-50 border-slate-200 opacity-55 cursor-not-allowed'
-                        : inCartQty > 0
-                        ? 'bg-white border-blue-500 ring-2 ring-blue-500/20 shadow-xs cursor-pointer hover:border-blue-600'
-                        : 'bg-white border-slate-200 hover:border-slate-400 hover:shadow-xs cursor-pointer'
-                    }`}
-                  >
-                    {/* Top Row: Category & Stock badge */}
-                    <div className="flex items-center justify-between gap-1">
-                      <span
-                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border truncate max-w-[110px] ${getCategoryBadgeClass(
-                          p.category
-                        )}`}
-                      >
-                        {p.category}
-                      </span>
-
-                      {isOutOfStock ? (
-                        <span className="text-[10px] font-bold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded shrink-0">
-                          Rupture
-                        </span>
-                      ) : isLowStock ? (
-                        <span className="text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded shrink-0">
-                          {p.stock} restant{p.stock > 1 ? 's' : ''}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded shrink-0">
-                          {p.stock}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Middle: Icon, Beverage Name & Specs */}
-                    <div className="my-auto py-1">
-                      <div className="flex items-start gap-2 mb-1.5">
-                        <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 mt-0.5 group-hover:scale-105 transition-transform">
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          if (!isOutOfStock) handleAddToCart(p);
+                        }
+                      }}
+                      className={`px-3.5 py-2.5 flex items-center justify-between gap-3 text-left transition-colors select-none ${
+                        isOutOfStock
+                          ? 'bg-slate-50/80 opacity-60 cursor-not-allowed'
+                          : inCartQty > 0
+                          ? 'bg-blue-50/40 hover:bg-blue-50/70 cursor-pointer'
+                          : 'bg-white hover:bg-slate-50 cursor-pointer'
+                      }`}
+                    >
+                      {/* Gauche : Icône, nom du produit et détails en ligne */}
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
                           {getCategoryIcon(p.category)}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <h4 className="font-bold text-slate-900 text-xs sm:text-[13px] leading-tight line-clamp-2">
-                            {p.name}
-                          </h4>
-                          <span className="text-[10px] text-slate-400 font-mono block mt-0.5 truncate">
-                            {p.sku} · {p.volume}
-                          </span>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <h4 className="font-bold text-slate-900 text-xs sm:text-sm truncate">
+                              {p.name}
+                            </h4>
+                            {p.isConsigne && (
+                              <span className="text-[10px] font-semibold text-amber-800 shrink-0 hidden sm:inline">
+                                · Consigne
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 truncate">
+                            <span className="truncate">{p.category}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="font-mono shrink-0">{p.sku}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="shrink-0">{p.volume}</span>
+                            <span className="hidden md:inline" aria-hidden="true">
+                              ·
+                            </span>
+                            <span
+                              className={`hidden md:inline font-medium shrink-0 ${
+                                p.alcoholDegree > 0 ? 'text-amber-700' : 'text-emerald-700'
+                              }`}
+                            >
+                              {p.alcoholDegree > 0 ? `${p.alcoholDegree}% Vol` : 'Sans alcool'}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                        <span
-                          className={
-                            p.alcoholDegree > 0
-                              ? 'text-amber-700 font-semibold'
-                              : 'text-emerald-700 font-semibold'
-                          }
-                        >
-                          {p.alcoholDegree > 0 ? `${p.alcoholDegree}% Vol` : 'Sans alcool'}
-                        </span>
-                        {p.isConsigne && (
-                          <span className="bg-amber-100 text-amber-900 border border-amber-200 px-1 rounded text-[9px] font-semibold">
-                            Consigne
+                      {/* Droite : Stock + Prix + Bouton Ajouter */}
+                      <div className="flex items-center gap-3 sm:gap-5 shrink-0">
+                        <div className="text-right hidden sm:block min-w-[76px]">
+                          {isOutOfStock ? (
+                            <span className="text-[11px] font-bold text-rose-700">Rupture</span>
+                          ) : isLowStock ? (
+                            <span className="text-[11px] font-semibold text-amber-700 tabular-nums">
+                              {p.stock} restant{p.stock > 1 ? 's' : ''}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-medium text-emerald-700 tabular-nums">
+                              Stock : {p.stock}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-right min-w-[84px]">
+                          <span className="text-xs sm:text-sm font-bold font-mono tabular-nums text-slate-900 block">
+                            {formatHTG(p.salePrice)}
+                          </span>
+                          <span className="text-[10px] text-slate-400 sm:hidden block tabular-nums">
+                            {isOutOfStock ? 'Rupture' : `Stock: ${p.stock}`}
+                          </span>
+                        </div>
+
+                        {inCartQty > 0 ? (
+                          <span className="min-w-[68px] h-9 px-2.5 flex items-center justify-center bg-blue-600 text-white rounded-lg text-xs font-bold tabular-nums">
+                            x{inCartQty}
+                          </span>
+                        ) : (
+                          <span className="min-w-[68px] h-9 px-2.5 flex items-center justify-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors whitespace-nowrap">
+                            <Plus className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Ajouter</span>
                           </span>
                         )}
                       </div>
                     </div>
-
-                    {/* Bottom Row: Price & Quantity Badge / Add button */}
-                    <div className="flex items-center justify-between pt-1.5 border-t border-slate-100">
-                      <div>
-                        <span className="text-xs font-bold font-mono tabular-nums text-slate-900 block">
-                          {formatHTG(p.salePrice)}
-                        </span>
-                        <span className="text-[9px] text-slate-400 block -mt-0.5">Prix vente HT</span>
-                      </div>
-
-                      {inCartQty > 0 ? (
-                        <div className="flex items-center gap-1 bg-blue-600 text-white rounded-lg px-2 py-1 text-xs font-bold shadow-2xs">
-                          <span>x{inCartQty}</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg px-2 py-1 transition-colors">
-                          <Plus className="w-3 h-3" />
-                          <span>Ajouter</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
 
             {filteredProducts.length === 0 && (
               <div className="bg-white p-12 text-center rounded-xl border border-slate-200 text-slate-400">
@@ -913,9 +919,9 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({
             </div>
           </div>
 
-          {/* Mobile Quick Cart Floating Trigger */}
+          {/* Mobile Quick Cart Floating Trigger (au-dessus de la barre inférieure mobile) */}
           {totalCartCount > 0 && (
-            <div className="md:hidden fixed bottom-4 left-4 right-4 z-40">
+            <div className="md:hidden fixed bottom-20 left-4 right-4 z-40">
               <button
                 type="button"
                 onClick={() => {
@@ -1041,18 +1047,18 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-medium">
                   <tr>
-                    <th className="py-3 px-4">Facture & Date</th>
-                    <th className="py-3 px-4">Client & Entreprise</th>
-                    <th className="py-3 px-4">Commercial</th>
-                    <th className="py-3 px-4">Mode</th>
-                    <th className="py-3 px-4 text-right">Total HT</th>
-                    <th className="py-3 px-4 text-right">Profit Net</th>
-                    <th className="py-3 px-4 text-right">Marge %</th>
+                    <SortableHeader label="Facture & Date" field="date" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                    <SortableHeader label="Client & Entreprise" field="customerName" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                    <SortableHeader label="Commercial" field="sellerName" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                    <SortableHeader label="Mode" field="paymentMethod" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                    <SortableHeader label="Total HT" field="totalHT" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
+                    <SortableHeader label="Profit Net" field="netProfit" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
+                    <SortableHeader label="Marge %" field="marginPercent" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
                     <th className="py-3 px-4 text-center">Détail</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredSales.map((sale) => (
+                  {paginatedSales.map((sale) => (
                     <tr key={sale.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-3 px-4">
                         <span className="font-mono font-semibold text-slate-900 block">{sale.invoiceNumber}</span>
@@ -1123,7 +1129,7 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({
                       </td>
                     </tr>
                   ))}
-                  {filteredSales.length === 0 && (
+                  {paginatedSales.length === 0 && (
                     <tr>
                       <td colSpan={8} className="py-12 text-center text-slate-400">
                         Aucune transaction trouvée.
@@ -1133,6 +1139,16 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({
                 </tbody>
               </table>
             </div>
+
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={totalItems}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              itemLabel="ventes"
+            />
           </div>
         </div>
       )}

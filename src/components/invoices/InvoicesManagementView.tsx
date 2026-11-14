@@ -1,7 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { Sale, Seller, Product, Customer, AppSettings, ExchangeRateConfig } from '../../types';
-import { formatHTG, formatUSD, formatDOP } from '../../utils/formatters';
+import { formatHTG, formatUSD, formatDOP, formatDateFR } from '../../utils/formatters';
 import { WaterBottleLogo } from '../common/WaterBottleLogo';
+import { useTableControls } from '../../hooks/useTableControls';
+import { SortableHeader } from '../common/SortableHeader';
+import { TablePagination } from '../common/TablePagination';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 import {
   FileText,
   Search,
@@ -63,6 +67,7 @@ export const InvoicesManagementView: React.FC<InvoicesManagementViewProps> = ({
 
   // Selected invoice for detail/print modal
   const [selectedInvoice, setSelectedInvoice] = useState<Sale | null>(null);
+  const [invoiceToCancel, setInvoiceToCancel] = useState<Sale | null>(null);
 
   // Status update confirmation toast or feedback
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
@@ -132,14 +137,33 @@ export const InvoicesManagementView: React.FC<InvoicesManagementViewProps> = ({
       }
 
       return matchSearch && matchStatus && matchPayment && matchPeriod;
-    }).sort((a, b) => {
-      if (sortBy === 'date_desc') return new Date(b.date).getTime() - new Date(a.date).getTime();
-      if (sortBy === 'date_asc') return new Date(a.date).getTime() - new Date(b.date).getTime();
-      if (sortBy === 'amount_desc') return b.totalTTC - a.totalTTC;
-      if (sortBy === 'amount_asc') return a.totalTTC - b.totalTTC;
-      return 0;
     });
-  }, [sales, searchTerm, statusFilter, paymentMethodFilter, periodFilter, sortBy]);
+  }, [sales, searchTerm, statusFilter, paymentMethodFilter, periodFilter]);
+
+  type InvoiceSortField = 'invoiceNumber' | 'date' | 'customerName' | 'sellerName' | 'totalHT' | 'totalTTC' | 'status';
+  const {
+    sortField,
+    sortDirection,
+    setSortField,
+    setSortDirection,
+    toggleSort,
+    page,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedInvoices,
+    setPage,
+    setPageSize,
+  } = useTableControls<Sale, InvoiceSortField>({
+    items: filteredInvoices,
+    defaultSortField: 'date',
+    defaultSortDirection: 'desc',
+    defaultPageSize: 10,
+    getSortValue: (inv, field) => {
+      if (field === 'date') return new Date(inv.date).getTime();
+      return inv[field];
+    },
+  });
 
   // Financial KPI totals calculated across all active sales (excluding cancelled for revenue)
   const totalInvoicedTTC = useMemo(() => {
@@ -442,7 +466,24 @@ export const InvoicesManagementView: React.FC<InvoicesManagementViewProps> = ({
             {/* Sort Order */}
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
+              onChange={(e) => {
+                const val = e.target.value as 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc';
+                setSortBy(val);
+                if (val === 'date_desc') {
+                  setSortField('date');
+                  setSortDirection('desc');
+                } else if (val === 'date_asc') {
+                  setSortField('date');
+                  setSortDirection('asc');
+                } else if (val === 'amount_desc') {
+                  setSortField('totalTTC');
+                  setSortDirection('desc');
+                } else if (val === 'amount_asc') {
+                  setSortField('totalTTC');
+                  setSortDirection('asc');
+                }
+                setPage(1);
+              }}
               className="px-3 py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600"
             >
               <option value="date_desc">Date récente d'abord</option>
@@ -483,19 +524,19 @@ export const InvoicesManagementView: React.FC<InvoicesManagementViewProps> = ({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-semibold tracking-wider uppercase text-[11px]">
-                <th className="py-3 px-4">N° Facture</th>
-                <th className="py-3 px-4">Date & Échéance</th>
-                <th className="py-3 px-4">Client / Établissement</th>
-                <th className="py-3 px-4">Commercial</th>
+                <SortableHeader label="N° Facture" field="invoiceNumber" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                <SortableHeader label="Date & Échéance" field="date" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                <SortableHeader label="Client / Établissement" field="customerName" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                <SortableHeader label="Commercial" field="sellerName" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
                 <th className="py-3 px-4">Règlement</th>
-                <th className="py-3 px-4 text-right">Montant HT</th>
-                <th className="py-3 px-4 text-right">Montant TTC</th>
-                <th className="py-3 px-4 text-center">Statut</th>
+                <SortableHeader label="Montant HT" field="totalHT" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
+                <SortableHeader label="Montant TTC" field="totalTTC" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
+                <SortableHeader label="Statut" field="status" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="center" />
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredInvoices.length === 0 ? (
+              {paginatedInvoices.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-12 text-center text-slate-400">
                     <FileText className="w-10 h-10 mx-auto mb-2 text-slate-300" />
@@ -504,7 +545,7 @@ export const InvoicesManagementView: React.FC<InvoicesManagementViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredInvoices.map((sale) => {
+                paginatedInvoices.map((sale) => {
                   const overdue = isInvoiceOverdue(sale);
                   const dueDate = getDueDate(sale);
                   const isCompleted = sale.status === 'completed';
@@ -681,6 +722,17 @@ export const InvoicesManagementView: React.FC<InvoicesManagementViewProps> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Pagination des factures */}
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          totalItems={totalItems}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          itemLabel="factures"
+        />
       </div>
 
       {/* ========================================================================= */}
@@ -970,8 +1022,8 @@ export const InvoicesManagementView: React.FC<InvoicesManagementViewProps> = ({
                 {selectedInvoice.status !== 'cancelled' && (
                   <button
                     type="button"
-                    onClick={() => handleSetStatus(selectedInvoice.id, 'cancelled')}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
+                    onClick={() => setInvoiceToCancel(selectedInvoice)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                   >
                     <XCircle className="w-3.5 h-3.5" />
                     <span>Annuler Facture</span>
@@ -990,6 +1042,27 @@ export const InvoicesManagementView: React.FC<InvoicesManagementViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Confirmation avant annulation de facture */}
+      <ConfirmDialog
+        isOpen={Boolean(invoiceToCancel)}
+        title="Annuler cette facture ?"
+        description="Cette facture passera au statut Annulée et ne sera plus comptabilisée dans le chiffre d'affaires encaissé."
+        itemDetail={
+          invoiceToCancel
+            ? `${invoiceToCancel.invoiceNumber} · ${invoiceToCancel.customerName} (${formatHTG(invoiceToCancel.totalTTC)} — ${formatDateFR(invoiceToCancel.date)})`
+            : undefined
+        }
+        confirmLabel="Confirmer l'annulation"
+        tone="warning"
+        onConfirm={() => {
+          if (invoiceToCancel) {
+            handleSetStatus(invoiceToCancel.id, 'cancelled');
+            setInvoiceToCancel(null);
+          }
+        }}
+        onCancel={() => setInvoiceToCancel(null)}
+      />
     </div>
   );
 };
