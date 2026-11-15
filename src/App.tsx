@@ -146,13 +146,13 @@ export default function App() {
   const [isSyncCenterOpen, setIsSyncCenterOpen] = useState(false);
   const [saleToPrint, setSaleToPrint] = useState<Sale | null>(null);
 
-  // Mode d'affichage : Page Unique Continue par défaut (avec bascule possible vers Onglets)
+  // Mode d'affichage : Vue normale par section par défaut (avec bascule possible vers Page Continue)
   const [viewMode, setViewMode] = useState<'continuous' | 'tabs'>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.VIEW_MODE);
-      return saved === 'tabs' ? 'tabs' : 'continuous';
+      return saved === 'continuous' ? 'continuous' : 'tabs';
     } catch {
-      return 'continuous';
+      return 'tabs';
     }
   });
 
@@ -442,11 +442,6 @@ export default function App() {
     setTouchStartY(null);
   };
 
-  const scrollToTop = () => {
-    programmaticScrollLockRef.current = Date.now() + 650;
-    setActiveTab('dashboard');
-    smoothScrollToY(0, 560);
-  };
 
   const handleOpenSaleForSeller = (sellerId: string) => {
     setSelectedSellerForSale(sellerId);
@@ -479,46 +474,178 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 text-[12px] flex flex-col font-sans selection:bg-amber-100 selection:text-amber-900">
-      {/* En-tête mobile compact et minimisable (masqué sur md+ car DistriBoissons et Menu Principal sont unifiés dans le panneau latéral) */}
+    <div className="min-h-screen overflow-x-clip bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-amber-100 selection:text-amber-900">
+      {/* En-tête supérieur normal et responsive (mobile, tablette, ordinateur) */}
       <header
-        className={`md:hidden sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 transition-all duration-200 ${
-          isHeaderMinimized ? 'h-11' : 'h-14'
+        className={`sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 transition-all duration-200 ${
+          isHeaderMinimized ? 'h-12 md:h-16' : 'h-14 md:h-16'
         }`}
       >
-        <div className="h-full px-3 flex items-center justify-between gap-2">
-          {/* Logo & Identité DistriBoissons */}
-          <button
-            type="button"
-            onClick={scrollToTop}
-            className="flex items-center gap-2 min-w-0 whitespace-nowrap shrink-0 cursor-pointer text-left"
-          >
-            <span className="w-7 h-7 rounded-lg bg-amber-600 text-white flex items-center justify-center shrink-0">
-              <WaterBottleLogo className="w-4 h-4 text-white" />
-            </span>
-            <span className="text-sm font-bold tracking-tight text-slate-900 truncate max-w-[140px]">
-              {settings.companyName || 'DistriBoissons Pro'}
-            </span>
-          </button>
+        <div className="max-w-[1440px] mx-auto h-full px-3 sm:px-6 lg:px-8 flex items-center justify-between gap-3">
+          {/* Gauche : Menu burger (< lg) + Logo DistriBoissons */}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              onClick={() => setIsMobileDrawerOpen((v) => !v)}
+              className="lg:hidden min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 cursor-pointer shrink-0"
+              aria-label="Ouvrir le menu de navigation"
+              title="Menu Principal"
+            >
+              {isMobileDrawerOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
 
-          {/* Actions rapides mobile + Bouton Minimiser l'en-tête */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            {!isHeaderMinimized && (
-              <button
-                type="button"
-                onClick={() => setIsSyncCenterOpen(true)}
-                className={`min-h-[36px] px-2 py-1 rounded-lg border text-[11px] font-semibold flex items-center gap-1 cursor-pointer ${
-                  isCloudConnected
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                    : 'bg-amber-50 border-amber-200 text-amber-800'
-                }`}
-                title="État synchronisation Cloud"
-              >
-                <Cloud className="w-3.5 h-3.5" />
-                <span>{isCloudConnected ? 'Sync' : 'Hors-ligne'}</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => handleTabSelect('dashboard')}
+              className="flex items-center gap-2.5 min-w-0 whitespace-nowrap shrink-0 cursor-pointer text-left"
+            >
+              <span className="w-8 h-8 md:w-9 md:h-9 rounded-xl bg-amber-600 text-white flex items-center justify-center shrink-0">
+                <WaterBottleLogo className="w-5 h-5 text-white" />
+              </span>
+              <div className="min-w-0 leading-tight">
+                <span className="text-sm sm:text-base font-bold tracking-tight text-slate-900 block truncate max-w-[150px] sm:max-w-none">
+                  {settings.companyName || 'DistriBoissons Pro'}
+                </span>
+                <span className="text-[11px] text-slate-500 hidden sm:block">
+                  Distribution Boissons &amp; Consignes
+                </span>
+              </div>
+            </button>
+          </div>
 
+          {/* Droite : Actions principales sobres et alignées */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Synchronisation Cloud */}
+            <button
+              type="button"
+              onClick={() => setIsSyncCenterOpen(true)}
+              className={`min-h-[38px] px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                isCloudConnected
+                  ? 'bg-emerald-50 hover:bg-emerald-100/80 border-emerald-200 text-emerald-800'
+                  : 'bg-amber-50 hover:bg-amber-100/80 border-amber-200 text-amber-800'
+              }`}
+              title={`Synchronisation Cloud ${lastSyncTime ? `(${lastSyncTime})` : ''}`}
+            >
+              <Cloud className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">
+                {isCloudConnected ? 'Cloud connecté' : 'Hors-ligne'}
+              </span>
+            </button>
+
+            {/* Profil utilisateur (Desktop / Tablette) */}
+            <div className="relative hidden sm:block">
+              {currentUser ? (
+                <button
+                  type="button"
+                  onClick={() => setIsUserMenuOpen((v) => !v)}
+                  className="min-h-[38px] flex items-center gap-2 px-2.5 py-1 rounded-xl border border-slate-200 hover:border-amber-400 bg-white hover:bg-slate-50 transition-colors cursor-pointer"
+                  title={currentUser.name}
+                >
+                  <img
+                    src={currentUser.avatar}
+                    alt={currentUser.name}
+                    className="w-6 h-6 rounded-full object-cover border border-amber-500/40 shrink-0"
+                    onError={(e) => {
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
+                  />
+                  <span className="text-xs font-semibold text-slate-800 hidden xl:inline truncate max-w-[110px]">
+                    {currentUser.name}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsLoginModalOpen(true)}
+                  className="min-h-[38px] px-3 py-1.5 text-xs font-bold text-amber-950 bg-amber-400 hover:bg-amber-500 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>Connexion</span>
+                </button>
+              )}
+
+              {isUserMenuOpen && currentUser && (
+                <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50">
+                  <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-3">
+                    <img
+                      src={currentUser.avatar}
+                      alt={currentUser.name}
+                      className="w-9 h-9 rounded-full object-cover border border-slate-200"
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-900 truncate">
+                          {currentUser.name}
+                        </span>
+                        {isAdmin ? (
+                          <span className="text-[10px] font-semibold text-amber-700 flex items-center gap-0.5 shrink-0">
+                            <Crown className="w-2.5 h-2.5" />
+                            Admin
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-500 shrink-0">Commercial</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-slate-500 truncate">{currentUser.role}</div>
+                    </div>
+                  </div>
+
+                  <div className="px-2 py-1.5">
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
+                          handleTabSelect('users');
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-amber-700 rounded-lg flex items-center gap-2 transition cursor-pointer"
+                      >
+                        <UserCog className="w-4 h-4 text-slate-400" />
+                        <span>Gestion de l&apos;Équipe</span>
+                      </button>
+                    ) : (
+                      <div className="px-3 py-2 text-[11px] text-slate-500 bg-slate-50 rounded-lg flex items-center gap-2 mb-1">
+                        <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>Accès Commercial restreint</span>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsUserMenuOpen(false);
+                        setIsLoginModalOpen(true);
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-amber-700 rounded-lg flex items-center gap-2 transition cursor-pointer"
+                    >
+                      <ArrowLeftRight className="w-4 h-4 text-slate-400" />
+                      <span>Changer d&apos;utilisateur</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentUser(INITIAL_SELLERS[0]);
+                        try {
+                          localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+                        } catch (e) {
+                          console.error(e);
+                        }
+                        setIsUserMenuOpen(false);
+                        setIsLoginModalOpen(true);
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 rounded-lg flex items-center gap-2 transition font-medium cursor-pointer"
+                    >
+                      <LogOut className="w-4 h-4 text-rose-500" />
+                      <span>Déconnexion</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Nouvelle Vente CTA */}
             <button
               type="button"
               onClick={() => {
@@ -526,20 +653,17 @@ export default function App() {
                 setSelectedCustomerForSale(null);
                 setIsNewSaleOpen(true);
               }}
-              className={`px-2.5 rounded-lg text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer ${
-                isHeaderMinimized ? 'h-8' : 'min-h-[36px]'
-              }`}
+              className="min-h-[38px] px-3 sm:px-4 py-1.5 rounded-xl text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <PlusCircle className="w-3.5 h-3.5" />
-              <span>Vendre</span>
+              <PlusCircle className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">Nouvelle Vente</span>
+              <span className="sm:hidden">Vendre</span>
             </button>
 
             <button
               type="button"
               onClick={() => setIsHeaderMinimized((v) => !v)}
-              className={`w-8 flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 cursor-pointer ${
-                isHeaderMinimized ? 'h-8' : 'h-9'
-              }`}
+              className="md:hidden min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 cursor-pointer shrink-0"
               title={isHeaderMinimized ? "Agrandir l'en-tête" : "Minimiser l'en-tête"}
               aria-label={isHeaderMinimized ? "Agrandir l'en-tête" : "Minimiser l'en-tête"}
             >
@@ -553,49 +677,30 @@ export default function App() {
         </div>
       </header>
 
-      {/* Conteneur principal unifié : DistriBoissons + Menu Principal réunis à gauche et Page Continue fluide à droite */}
-      <div className="flex-1 max-w-[1440px] w-full mx-auto px-3 sm:px-6 lg:px-8 pt-3 sm:pt-5 pb-24 md:pb-10 flex flex-col md:flex-row items-start gap-5 lg:gap-6">
-        {/* Panneau Latéral Unifié : DistriBoissons + Menu Principal (Desktop / Tablette) */}
+      {/* Conteneur principal normal et bien proportionné : barre latérale desktop + contenu */}
+      <div className="flex-1 max-w-[1440px] w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-20 md:pb-8 flex flex-col lg:flex-row items-start gap-6">
+        {/* Menu latéral vertical (Desktop lg+, repliable) */}
         <aside
-          className={`hidden md:flex md:flex-col shrink-0 md:sticky md:top-4 md:max-h-[calc(100vh-2rem)] bg-white border border-slate-200 rounded-2xl transition-[width] duration-200 ease-out overflow-hidden ${
-            isSidebarMinimized ? 'w-[76px] p-2' : 'w-64 lg:w-[272px] p-3.5'
+          className={`hidden lg:flex lg:flex-col shrink-0 lg:sticky lg:top-20 bg-white border border-slate-200 rounded-2xl transition-[width] duration-200 ease-out ${
+            isSidebarMinimized ? 'w-[72px] p-2' : 'w-60 p-3'
           }`}
         >
-          {/* Bloc DistriBoissons intégré directement en haut du Menu Principal */}
           <div
-            className={`pb-3 mb-2.5 border-b border-slate-100 flex items-center ${
-              isSidebarMinimized ? 'flex-col gap-2' : 'justify-between gap-2'
+            className={`px-2 pb-2.5 mb-2 border-b border-slate-100 flex items-center ${
+              isSidebarMinimized ? 'justify-center' : 'justify-between gap-2'
             }`}
           >
-            <button
-              type="button"
-              onClick={scrollToTop}
-              className={`flex items-center gap-2.5 min-w-0 text-left cursor-pointer ${
-                isSidebarMinimized ? 'justify-center' : ''
-              }`}
-              title={`${settings.companyName || 'DistriBoissons Pro'} · Revenir en haut`}
-            >
-              <span className="w-9 h-9 rounded-xl bg-amber-600 text-white flex items-center justify-center shrink-0">
-                <WaterBottleLogo className="w-5 h-5 text-white" />
+            {!isSidebarMinimized && (
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Menu Principal
               </span>
-              {!isSidebarMinimized && (
-                <div className="min-w-0 leading-tight">
-                  <span className="text-sm font-bold tracking-tight text-slate-900 block truncate">
-                    {settings.companyName || 'DistriBoissons Pro'}
-                  </span>
-                  <span className="text-[11px] text-slate-500 block truncate">
-                    Boissons &amp; Consignes
-                  </span>
-                </div>
-              )}
-            </button>
-
+            )}
             <button
               type="button"
               onClick={() => setIsSidebarMinimized((v) => !v)}
-              className="min-h-[36px] min-w-[36px] px-2 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 flex items-center justify-center gap-1 text-xs font-semibold transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-              title={isSidebarMinimized ? 'Agrandir le menu' : 'Minimiser cette partie'}
-              aria-label={isSidebarMinimized ? 'Agrandir le menu' : 'Minimiser cette partie'}
+              className="min-h-[34px] min-w-[34px] p-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-900 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+              title={isSidebarMinimized ? 'Agrandir le menu' : 'Minimiser le menu'}
+              aria-label={isSidebarMinimized ? 'Agrandir le menu' : 'Minimiser le menu'}
             >
               {isSidebarMinimized ? (
                 <PanelLeftOpen className="w-4 h-4 text-amber-600" />
@@ -605,46 +710,7 @@ export default function App() {
             </button>
           </div>
 
-          {/* Bouton principal Nouvelle Vente dans le même panneau */}
-          <div className="mb-3">
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedSellerForSale(undefined);
-                setSelectedCustomerForSale(null);
-                setIsNewSaleOpen(true);
-              }}
-              className={`w-full min-h-[42px] rounded-xl text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 whitespace-nowrap cursor-pointer ${
-                isSidebarMinimized ? 'px-2' : 'px-3.5'
-              }`}
-              title="Nouvelle Vente"
-            >
-              <PlusCircle className="w-4 h-4 shrink-0" />
-              {!isSidebarMinimized && <span>Nouvelle Vente</span>}
-            </button>
-          </div>
-
-          {/* Titre Menu Principal + Contrôle Tout réduire */}
-          {!isSidebarMinimized && (
-            <div className="px-2 pb-1.5 flex items-center justify-between text-[11px] font-semibold text-slate-400">
-              <span>Menu Principal</span>
-              {viewMode === 'continuous' && (
-                <button
-                  type="button"
-                  onClick={handleToggleAllSections}
-                  className="text-amber-700 hover:text-amber-800 font-semibold cursor-pointer"
-                >
-                  {allSectionsMinimized ? 'Tout déplier' : 'Tout réduire'}
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Liste des sections du Menu Principal avec défilement interne sécurisé si écran court */}
-          <nav
-            aria-label="Navigation principale verticale"
-            className="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-1 pr-0.5"
-          >
+          <nav aria-label="Navigation principale verticale" className="flex flex-col gap-1">
             {NAVIGATION_TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -654,11 +720,11 @@ export default function App() {
                   type="button"
                   data-tab-id={tab.id}
                   onClick={() => handleTabSelect(tab.id)}
-                  className={`w-full min-h-[42px] rounded-xl text-xs font-semibold flex items-center transition-colors cursor-pointer whitespace-nowrap ${
+                  className={`w-full min-h-[40px] rounded-xl text-sm font-medium flex items-center transition-colors cursor-pointer whitespace-nowrap ${
                     isSidebarMinimized ? 'justify-center px-2 py-2' : 'px-3 py-2 gap-3 text-left'
                   } ${
                     isActive
-                      ? 'bg-amber-600 text-white'
+                      ? 'bg-amber-600 text-white font-semibold'
                       : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
                   }`}
                   title={`${tab.label} · ${tab.description}`}
@@ -666,216 +732,37 @@ export default function App() {
                   <Icon
                     className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-amber-600'}`}
                   />
-                  {!isSidebarMinimized && (
-                    <div className="min-w-0 flex-1">
-                      <span className="block truncate">{tab.label}</span>
-                      <span
-                        className={`block text-[10px] truncate ${
-                          isActive ? 'text-amber-100' : 'text-slate-400 font-normal'
-                        }`}
-                      >
-                        {tab.description}
-                      </span>
-                    </div>
-                  )}
+                  {!isSidebarMinimized && <span className="truncate">{tab.label}</span>}
                 </button>
               );
             })}
           </nav>
-
-          {/* Bas du panneau unifié : Cloud Synchro & Profil Collaborateur */}
-          <div className="pt-3 mt-2 border-t border-slate-100 flex flex-col gap-2">
-            <button
-              type="button"
-              onClick={() => setIsSyncCenterOpen(true)}
-              className={`w-full min-h-[38px] rounded-xl border text-xs font-semibold flex items-center transition-colors cursor-pointer ${
-                isSidebarMinimized ? 'justify-center px-2' : 'justify-between px-3'
-              } ${
-                isCloudConnected
-                  ? 'bg-emerald-50 hover:bg-emerald-100/80 border-emerald-200 text-emerald-800'
-                  : 'bg-amber-50 hover:bg-amber-100/80 border-amber-200 text-amber-800'
-              }`}
-              title={`Synchronisation Cloud ${lastSyncTime ? `(${lastSyncTime})` : ''}`}
-            >
-              <span className="flex items-center gap-2 min-w-0">
-                <Cloud className="w-4 h-4 shrink-0" />
-                {!isSidebarMinimized && (
-                  <span className="truncate">
-                    {isCloudConnected ? 'Cloud connecté' : 'Mode hors-ligne'}
-                  </span>
-                )}
-              </span>
-              {!isSidebarMinimized && lastSyncTime && (
-                <span className="text-[10px] font-mono tabular-nums opacity-75">
-                  {lastSyncTime}
-                </span>
-              )}
-            </button>
-
-            {currentUser ? (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setIsUserMenuOpen((v) => !v)}
-                  className={`w-full min-h-[42px] rounded-xl border border-slate-200 hover:border-amber-400 bg-white hover:bg-slate-50 flex items-center transition-colors cursor-pointer ${
-                    isSidebarMinimized ? 'justify-center p-1.5' : 'justify-between px-2.5 py-1.5 gap-2'
-                  }`}
-                  title={currentUser.name}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <img
-                      src={currentUser.avatar}
-                      alt={currentUser.name}
-                      className="w-7 h-7 rounded-full object-cover border border-amber-500/40 shrink-0"
-                      onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
-                      }}
-                    />
-                    {!isSidebarMinimized && (
-                      <div className="text-left leading-tight min-w-0">
-                        <span className="text-xs font-bold text-slate-800 block truncate">
-                          {currentUser.name}
-                        </span>
-                        <span className="text-[10px] text-slate-500 block truncate">
-                          {currentUser.role}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  {!isSidebarMinimized && <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
-                </button>
-
-                {isUserMenuOpen && (
-                  <div className="absolute bottom-full left-0 mb-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50">
-                    <div className="px-4 py-2.5 border-b border-slate-100 flex items-center gap-3">
-                      <img
-                        src={currentUser.avatar}
-                        alt={currentUser.name}
-                        className="w-9 h-9 rounded-full object-cover border border-slate-200"
-                      />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-bold text-slate-900 truncate">
-                            {currentUser.name}
-                          </span>
-                          {isAdmin ? (
-                            <span className="text-[10px] font-semibold text-amber-700 flex items-center gap-0.5 shrink-0">
-                              <Crown className="w-2.5 h-2.5" />
-                              Admin
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-slate-500 shrink-0">Commercial</span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-slate-500 truncate">{currentUser.role}</div>
-                      </div>
-                    </div>
-
-                    <div className="px-2 py-1.5">
-                      {isAdmin ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsUserMenuOpen(false);
-                            handleTabSelect('users');
-                          }}
-                          className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-amber-700 rounded-lg flex items-center gap-2 transition cursor-pointer"
-                        >
-                          <UserCog className="w-4 h-4 text-slate-400" />
-                          <span>Gestion de l&apos;Équipe</span>
-                        </button>
-                      ) : (
-                        <div className="px-3 py-2 text-[11px] text-slate-500 bg-slate-50 rounded-lg flex items-center gap-2 mb-1">
-                          <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                          <span>Accès Commercial restreint</span>
-                        </div>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsUserMenuOpen(false);
-                          setIsLoginModalOpen(true);
-                        }}
-                        className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-amber-700 rounded-lg flex items-center gap-2 transition cursor-pointer"
-                      >
-                        <ArrowLeftRight className="w-4 h-4 text-slate-400" />
-                        <span>Changer d&apos;utilisateur</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCurrentUser(INITIAL_SELLERS[0]);
-                          try {
-                            localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-                          } catch (e) {
-                            console.error(e);
-                          }
-                          setIsUserMenuOpen(false);
-                          setIsLoginModalOpen(true);
-                        }}
-                        className="w-full text-left px-3 py-2 text-xs text-rose-600 hover:bg-rose-50 rounded-lg flex items-center gap-2 transition font-medium cursor-pointer"
-                      >
-                        <LogOut className="w-4 h-4 text-rose-500" />
-                        <span>Déconnexion</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setIsLoginModalOpen(true)}
-                className="w-full min-h-[40px] px-3 py-1.5 text-xs font-bold text-amber-950 bg-amber-400 hover:bg-amber-500 rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <KeyRound className="w-3.5 h-3.5" />
-                {!isSidebarMinimized && <span>Connexion</span>}
-              </button>
-            )}
-          </div>
         </aside>
 
-        {/* Zone de contenu active (Page Unique Continue ou Onglets) */}
+        {/* Zone de contenu active */}
         <main
-          className="flex-1 min-w-0 w-full space-y-4"
+          className="flex-1 min-w-0 w-full space-y-5"
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
         >
-          {/* Barre d'outils supérieure de la page unique (mode d'affichage, réduire/déplier tout, partage) */}
-          <div className="bg-white border border-slate-200 rounded-2xl px-3.5 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
-            {/* Fil d'activité / Section active */}
-            <div className="flex items-center gap-2 min-w-0 text-xs text-slate-600">
+          {/* Barre d'outils contextuelle sobre */}
+          <div className="bg-white border border-slate-200 rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
+            {/* Section active */}
+            <div className="flex items-center gap-2 min-w-0 text-sm text-slate-600">
               <span className="font-bold text-slate-900 truncate">
                 {NAVIGATION_TABS.find((t) => t.id === activeTab)?.label || 'Tableau de Bord'}
               </span>
               <span className="text-slate-300 hidden sm:inline" aria-hidden="true">
                 ·
               </span>
-              <span className="text-slate-500 hidden sm:inline truncate">
-                {viewMode === 'continuous'
-                  ? 'Page unique continue — faites défiler librement'
-                  : 'Mode onglets isolés'}
+              <span className="text-xs text-slate-500 hidden sm:inline truncate">
+                {NAVIGATION_TABS.find((t) => t.id === activeTab)?.description}
               </span>
             </div>
 
             {/* Contrôles rapides de la page */}
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Bascule Page Unique / Onglets */}
               <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('continuous')}
-                  className={`px-2.5 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer ${
-                    viewMode === 'continuous'
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Layers className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Page Unique</span>
-                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -889,7 +776,19 @@ export default function App() {
                   }`}
                 >
                   <MoveHorizontal className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Onglets</span>
+                  <span>Vue Normale</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('continuous')}
+                  className={`px-2.5 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer ${
+                    viewMode === 'continuous'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Page Continue</span>
                 </button>
               </div>
 
@@ -1348,14 +1247,14 @@ export default function App() {
         </button>
       </nav>
 
-      {/* Tiroir Mobile unifié DistriBoissons + Menu Principal */}
+      {/* Tiroir de navigation pour Mobile & Tablette (< lg) */}
       {isMobileDrawerOpen && (
         <div
-          className="md:hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end"
+          className="lg:hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end md:items-center md:justify-start"
           onClick={() => setIsMobileDrawerOpen(false)}
         >
           <div
-            className="w-full max-h-[85vh] overflow-y-auto bg-white rounded-t-3xl p-4 pb-6 shadow-2xl border-t border-slate-200 space-y-3"
+            className="w-full md:w-80 md:h-full max-h-[85vh] md:max-h-full overflow-y-auto bg-white rounded-t-3xl md:rounded-none md:rounded-r-2xl p-4 pb-6 shadow-2xl border-t md:border-t-0 md:border-r border-slate-200 space-y-3"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">

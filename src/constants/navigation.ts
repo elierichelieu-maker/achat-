@@ -64,7 +64,7 @@ export const STORAGE_KEYS = {
   SIDEBAR_MINIMIZED: 'optiboissons_sidebar_minimized_v1',
   HEADER_MINIMIZED: 'optiboissons_header_minimized_v1',
   COLLAPSED_SECTIONS: 'optiboissons_collapsed_sections_v1',
-  VIEW_MODE: 'optiboissons_view_mode_v1',
+  VIEW_MODE: 'optiboissons_view_mode_v2',
 } as const;
 
 /**
