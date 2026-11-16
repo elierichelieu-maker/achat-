@@ -532,8 +532,8 @@ export const StockManagementView: React.FC<StockManagementViewProps> = ({
               </span>
             </div>
           </div>
-          <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-200/80 text-blue-900 px-2.5 py-1 rounded-full border border-blue-300 shrink-0">
-            Lecture Seule
+          <span className="text-xs font-semibold text-blue-800 shrink-0">
+            Accès en lecture seule
           </span>
         </div>
       )}

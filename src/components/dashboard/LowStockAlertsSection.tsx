@@ -187,20 +187,20 @@ export const LowStockAlertsSection: React.FC<LowStockAlertsSectionProps> = ({
       className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs"
     >
       {/* Header Banner */}
-      <div className="p-5 border-b border-slate-200 bg-linear-to-r from-amber-50/60 via-white to-red-50/40">
+      <div className="p-5 border-b border-slate-200 bg-slate-50/60">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <div
               className={`p-2.5 rounded-xl border shrink-0 ${
                 outOfStockCount > 0
-                  ? 'bg-red-100 text-red-700 border-red-200 shadow-2xs'
+                  ? 'bg-rose-50 text-rose-700 border-rose-200'
                   : alertingProducts.length > 0
-                  ? 'bg-amber-100 text-amber-800 border-amber-200 shadow-2xs'
-                  : 'bg-emerald-100 text-emerald-800 border-emerald-200 shadow-2xs'
+                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
               }`}
             >
               {outOfStockCount > 0 ? (
-                <AlertOctagon className="w-5 h-5 animate-pulse" />
+                <AlertOctagon className="w-5 h-5" />
               ) : alertingProducts.length > 0 ? (
                 <AlertTriangle className="w-5 h-5" />
               ) : (
@@ -210,34 +210,34 @@ export const LowStockAlertsSection: React.FC<LowStockAlertsSectionProps> = ({
 
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                  <span>Alertes Stock Faible</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 hidden sm:inline-block" />
+                <h3 className="text-base font-bold text-slate-900 tracking-tight">
+                  Alertes Stock Faible
                 </h3>
+                <span className="text-slate-300" aria-hidden="true">·</span>
 
                 {alertingProducts.length > 0 ? (
-                  <span className="text-[11px] font-semibold font-mono px-2.5 py-0.5 rounded-full bg-red-100 text-red-800 border border-red-200">
+                  <span className="text-xs font-semibold font-mono tabular-nums text-rose-700">
                     {alertingProducts.length} produit{alertingProducts.length > 1 ? 's' : ''} sous le seuil
                   </span>
                 ) : (
-                  <span className="text-[11px] font-semibold font-mono px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-                    <Check className="w-3 h-3" />
-                    Stocks 100% conformes
+                  <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1">
+                    <Check className="w-3.5 h-3.5" />
+                    Stocks conformes
                   </span>
                 )}
 
-                {/* Active Threshold Indicator Badge */}
+                {/* Active Threshold Interactive Trigger */}
                 <button
                   type="button"
                   onClick={() => {
                     setTempThreshold(threshold);
                     setShowThresholdModal(true);
                   }}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer"
                   title="Modifier le seuil d'alerte configuré dans les paramètres"
                 >
-                  <SlidersHorizontal className="w-3 h-3 text-amber-600" />
-                  <span>Seuil : <strong>{threshold} unités</strong></span>
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Seuil : <strong className="tabular-nums">{threshold} unités</strong></span>
                 </button>
               </div>
 

@@ -178,20 +178,20 @@ export const ExpirationAlertsSection: React.FC<ExpirationAlertsSectionProps> = (
   return (
     <section className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
       {/* Header Banner */}
-      <div className="p-5 border-b border-slate-200 bg-linear-to-r from-rose-50/50 via-white to-amber-50/50">
+      <div className="p-5 border-b border-slate-200 bg-slate-50/60">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <div
               className={`p-2.5 rounded-xl border shrink-0 ${
                 expiredCount > 0 || criticalCount > 0
-                  ? 'bg-rose-100 text-rose-700 border-rose-200 shadow-2xs'
+                  ? 'bg-rose-50 text-rose-700 border-rose-200'
                   : alertingItems.length > 0
-                  ? 'bg-amber-100 text-amber-800 border-amber-200 shadow-2xs'
-                  : 'bg-emerald-100 text-emerald-800 border-emerald-200 shadow-2xs'
+                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
               }`}
             >
               {expiredCount > 0 ? (
-                <AlertOctagon className="w-5 h-5 animate-pulse" />
+                <AlertOctagon className="w-5 h-5" />
               ) : alertingItems.length > 0 ? (
                 <CalendarClock className="w-5 h-5" />
               ) : (
@@ -202,14 +202,15 @@ export const ExpirationAlertsSection: React.FC<ExpirationAlertsSectionProps> = (
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base font-bold text-slate-900 tracking-tight">
-                  Suivi des Dates de Péremption & Alertes (30 Prochains Jours)
+                  Suivi des Dates de Péremption &amp; Alertes (30 Jours)
                 </h3>
+                <span className="text-slate-300" aria-hidden="true">·</span>
                 {alertingItems.length > 0 ? (
-                  <span className="text-[11px] font-semibold font-mono px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
-                    {alertingItems.length} lot{alertingItems.length > 1 ? 's' : ''} à écouler / contrôler
+                  <span className="text-xs font-semibold font-mono tabular-nums text-rose-700">
+                    {alertingItems.length} lot{alertingItems.length > 1 ? 's' : ''} à contrôler
                   </span>
                 ) : (
-                  <span className="text-[11px] font-semibold font-mono px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  <span className="text-xs font-semibold text-emerald-700">
                     Aucune expiration ≤ 30 jours
                   </span>
                 )}
@@ -423,8 +424,8 @@ export const ExpirationAlertsSection: React.FC<ExpirationAlertsSectionProps> = (
                           Expiré ({Math.abs(daysRemaining)}j)
                         </span>
                       ) : daysRemaining === 0 ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-600 text-white shadow-2xs animate-pulse">
-                          Expire Aujourd'hui
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-600 text-white">
+                          Expire Aujourd&apos;hui
                         </span>
                       ) : isCritical ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-orange-600 text-white shadow-2xs">
