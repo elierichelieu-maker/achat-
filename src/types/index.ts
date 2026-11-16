@@ -170,6 +170,7 @@ export interface ExchangeRateConfig {
 
 export interface ExchangeTransaction {
   id: string;
+  receiptNumber?: string;
   date: string;
   type: 'USD_TO_HTG' | 'HTG_TO_USD' | 'DOP_TO_HTG' | 'HTG_TO_DOP' | 'USD_TO_DOP';
   fromCurrency: 'USD' | 'DOP' | 'HTG';
@@ -177,7 +178,10 @@ export interface ExchangeTransaction {
   amountFrom: number;
   rateApplied: number;
   amountTo: number;
+  billAmountHTG?: number;
+  changeReturnedHTG?: number;
   clientOrBeneficiary?: string;
+  clientPhone?: string;
   operator: string;
   notes?: string;
 }

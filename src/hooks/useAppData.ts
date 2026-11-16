@@ -537,14 +537,19 @@ export function useAppData() {
     [runMutation, notifySuccess]
   );
 
-  // Ajout d'une opération de change
+  // Ajout d'une opération de change (génère le numéro de facture client et retourne l'écriture)
   const handleAddExchangeTransaction = useCallback(
-    (newTx: Omit<ExchangeTransaction, 'id'>) => {
-      const id = `exc-${Date.now()}`;
-      const tx: ExchangeTransaction = { ...newTx, id };
+    (newTx: Omit<ExchangeTransaction, 'id'>): ExchangeTransaction => {
+      const now = Date.now();
+      const id = `exc-${now}`;
+      const year = new Date().getFullYear();
+      const suffix = String(now).slice(-4);
+      const receiptNumber = newTx.receiptNumber || `CHG-${year}-${suffix}`;
+      const tx: ExchangeTransaction = { ...newTx, id, receiptNumber };
       setExchangeTransactions((prev) => [tx, ...prev]);
       runMutation(settingsService.saveExchangeTransaction(tx), 'Erreur enregistrement change');
-      notifySuccess('Opération de change enregistrée.');
+      notifySuccess(`Opération de change ${receiptNumber} enregistrée.`);
+      return tx;
     },
     [runMutation, notifySuccess]
   );

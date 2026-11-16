@@ -154,6 +154,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "receiptNumber": { "type": "string" },
         "date": { "type": "string" },
         "type": { "type": "string" },
         "fromCurrency": { "type": "string" },
@@ -161,7 +162,10 @@
         "amountFrom": { "type": "number" },
         "rateApplied": { "type": "number" },
         "amountTo": { "type": "number" },
+        "billAmountHTG": { "type": "number" },
+        "changeReturnedHTG": { "type": "number" },
         "clientOrBeneficiary": { "type": "string" },
+        "clientPhone": { "type": "string" },
         "operator": { "type": "string" },
         "notes": { "type": "string" }
       },

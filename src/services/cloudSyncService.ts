@@ -104,9 +104,12 @@ export async function seedInitialDataIfEmpty() {
         batch.set(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'), DEFAULT_EXCHANGE_RATES);
       }
 
-      // Seed Exchange Transactions
+      // Seed Exchange Transactions (nettoyage des champs undefined)
       INITIAL_EXCHANGE_TRANSACTIONS.forEach((tx) => {
-        batch.set(doc(db, COLLECTIONS.EXCHANGE_TRANSACTIONS, tx.id), tx);
+        const cleanTx = Object.fromEntries(
+          Object.entries(tx).filter(([, v]) => v !== undefined)
+        );
+        batch.set(doc(db, COLLECTIONS.EXCHANGE_TRANSACTIONS, tx.id), cleanTx);
       });
 
       await batch.commit();
@@ -330,7 +333,10 @@ export async function forceFullCloudSync(data: FullAppDataPayload): Promise<{ su
     totalItems++;
 
     data.exchangeTransactions.forEach((tx) => {
-      batch.set(doc(db, COLLECTIONS.EXCHANGE_TRANSACTIONS, tx.id), tx);
+      const cleanTx = Object.fromEntries(
+        Object.entries(tx).filter(([, v]) => v !== undefined)
+      );
+      batch.set(doc(db, COLLECTIONS.EXCHANGE_TRANSACTIONS, tx.id), cleanTx);
       totalItems++;
     });
 
@@ -505,7 +511,10 @@ export async function syncSaveExchangeRates(rates: ExchangeRateConfig) {
 export async function syncSaveExchangeTransaction(tx: ExchangeTransaction) {
   const path = `${COLLECTIONS.EXCHANGE_TRANSACTIONS}/${tx.id}`;
   try {
-    await setDoc(doc(db, COLLECTIONS.EXCHANGE_TRANSACTIONS, tx.id), tx);
+    const cleanTx = Object.fromEntries(
+      Object.entries(tx).filter(([, v]) => v !== undefined)
+    );
+    await setDoc(doc(db, COLLECTIONS.EXCHANGE_TRANSACTIONS, tx.id), cleanTx);
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }

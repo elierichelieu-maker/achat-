@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { ExchangeRateConfig, ExchangeTransaction, Seller } from '../../types';
+import { AppSettings, Customer, ExchangeRateConfig, ExchangeTransaction, Seller } from '../../types';
 import { formatHTG, formatUSD, formatDOP, formatDateTimeFR } from '../../utils/formatters';
+import { validateExchangeTransactionInput } from '../../utils/validators';
 import { useTableControls } from '../../hooks/useTableControls';
 import { SortableHeader } from '../common/SortableHeader';
 import { TablePagination } from '../common/TablePagination';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import { ExchangeReceiptModal } from './ExchangeReceiptModal';
 import {
   ArrowLeftRight,
   DollarSign,
@@ -14,25 +16,26 @@ import {
   SlidersHorizontal,
   PlusCircle,
   Download,
-  Calendar,
   CheckCircle2,
   Trash2,
-  FileText,
   RefreshCw,
   Search,
-  Filter,
   X,
   Printer,
-  Sparkles,
   Layers,
+  User,
+  Phone,
+  AlertCircle,
 } from 'lucide-react';
 
 interface CurrencyExchangeViewProps {
   rates: ExchangeRateConfig;
   transactions: ExchangeTransaction[];
   sellers: Seller[];
+  customers?: Customer[];
+  settings?: AppSettings;
   onUpdateRates: (rates: ExchangeRateConfig) => void;
-  onAddTransaction: (transaction: Omit<ExchangeTransaction, 'id'>) => void;
+  onAddTransaction: (transaction: Omit<ExchangeTransaction, 'id'>) => ExchangeTransaction | void;
   onDeleteTransaction: (id: string) => void;
 }
 
@@ -43,6 +46,8 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
   rates,
   transactions,
   sellers,
+  customers = [],
+  settings,
   onUpdateRates,
   onAddTransaction,
   onDeleteTransaction,
@@ -50,14 +55,19 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
   // Navigation sub-tabs
   const [activeSubTab, setActiveSubTab] = useState<'calculator' | 'register' | 'grids'>('calculator');
 
-  // Converter state
+  // Converter state (Client -> Téléphone -> Montant)
   const [conversionMode, setConversionMode] = useState<ConversionMode>('USD_TO_HTG');
   const [rateType, setRateType] = useState<RateType>('reference');
   const [customRate, setCustomRate] = useState<number>(rates.usdToHtgReference);
+  const [converterClientName, setConverterClientName] = useState<string>('');
+  const [converterClientPhone, setConverterClientPhone] = useState<string>('');
+  const [converterErrors, setConverterErrors] = useState<Record<string, string>>({});
   const [amountInput, setAmountInput] = useState<string>('100');
 
-  // Change / Rendu de monnaie state
-  const [isCashierAssistantOpen, setIsCashierAssistantOpen] = useState(false);
+  // Change / Rendu de monnaie state (Client -> Téléphone -> Montants)
+  const [cashierClientName, setCashierClientName] = useState<string>('');
+  const [cashierClientPhone, setCashierClientPhone] = useState<string>('');
+  const [cashierErrors, setCashierErrors] = useState<Record<string, string>>({});
   const [billAmountHTG, setBillAmountHTG] = useState<string>('10000');
   const [paidForeignAmount, setPaidForeignAmount] = useState<string>('100');
   const [paidCurrency, setPaidCurrency] = useState<'USD' | 'DOP'>('USD');
@@ -66,6 +76,7 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
   const [isRatesModalOpen, setIsRatesModalOpen] = useState(false);
   const [isAddTransactionModalOpen, setIsAddTransactionModalOpen] = useState(false);
   const [txToDelete, setTxToDelete] = useState<ExchangeTransaction | null>(null);
+  const [selectedReceiptTx, setSelectedReceiptTx] = useState<ExchangeTransaction | null>(null);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
 
   // Filter & Search in Register
@@ -81,9 +92,11 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
     amountFrom: 100,
     rateApplied: rates.usdToHtgReference,
     clientOrBeneficiary: '',
+    clientPhone: '',
     operator: sellers[0]?.name || 'Caissier Principal',
     notes: '',
   });
+  const [manualTxErrors, setManualTxErrors] = useState<Record<string, string>>({});
 
   // Calculate current active rate for converter
   const currentRate = useMemo(() => {
@@ -185,9 +198,19 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
     showNotice('Taux de change officiels mis à jour avec succès');
   };
 
-  // Record transaction from converter
+  // Record transaction from converter (with client name, phone, and amount validation)
   const handleQuickRecordFromConverter = () => {
-    if (parsedAmount <= 0) return;
+    const validation = validateExchangeTransactionInput({
+      clientName: converterClientName,
+      clientPhone: converterClientPhone,
+      amount: parsedAmount,
+      rate: currentRate,
+    });
+
+    if (!validation.valid) {
+      setConverterErrors(validation.errors);
+      return;
+    }
 
     let fromCurrency: 'USD' | 'DOP' | 'HTG' = 'USD';
     let toCurrency: 'USD' | 'DOP' | 'HTG' = 'HTG';
@@ -209,7 +232,7 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
       toCurrency = 'DOP';
     }
 
-    onAddTransaction({
+    const payload: Omit<ExchangeTransaction, 'id'> = {
       date: new Date().toISOString(),
       type: conversionMode,
       fromCurrency,
@@ -217,19 +240,49 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
       amountFrom: parsedAmount,
       rateApplied: currentRate,
       amountTo: convertedResult,
-      clientOrBeneficiary: 'Comptoir / Client Caisse',
+      clientOrBeneficiary: converterClientName.trim(),
+      clientPhone: converterClientPhone.trim(),
       operator: sellers[0]?.name || 'Caissier Principal',
-      notes: `Change direct au guichet (${rateType === 'reference' ? 'Taux Référence' : rateType})`,
-    });
+      notes: `Change guichet (${rateType === 'reference' ? 'Taux Référence' : rateType})`,
+    };
 
-    showNotice(`Opération de change enregistrée : ${formatAmount(parsedAmount, fromCurrency)} ➔ ${formatAmount(convertedResult, toCurrency)}`);
+    const createdTx = onAddTransaction(payload);
+    const now = Date.now();
+    const receiptTx: ExchangeTransaction = createdTx || {
+      ...payload,
+      id: `exc-${now}`,
+      receiptNumber: `CHG-${new Date().getFullYear()}-${String(now).slice(-4)}`,
+    };
+
+    setConverterErrors({});
+    setConverterClientName('');
+    setConverterClientPhone('');
+    setSelectedReceiptTx(receiptTx);
+    showNotice(
+      `Opération enregistrée pour ${payload.clientOrBeneficiary} : ${formatAmount(parsedAmount, fromCurrency)} ➔ ${formatAmount(convertedResult, toCurrency)}`
+    );
   };
 
-  // Record cashier change transaction
+  // Record cashier change transaction (with client name, phone, and amount validation)
   const handleRecordCashierSale = () => {
-    if (cashierCalc.paidForeign <= 0) return;
+    const validation = validateExchangeTransactionInput({
+      clientName: cashierClientName,
+      clientPhone: cashierClientPhone,
+      amount: cashierCalc.paidForeign,
+      rate: cashierCalc.rate,
+    });
 
-    onAddTransaction({
+    const nextErrors = { ...validation.errors };
+    if (cashierCalc.remainingDueHTG > 0) {
+      nextErrors.amount = 'Le montant remis est insuffisant pour couvrir la facture.';
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setCashierErrors(nextErrors);
+      return;
+    }
+
+    const payload: Omit<ExchangeTransaction, 'id'> = {
       date: new Date().toISOString(),
       type: paidCurrency === 'USD' ? 'USD_TO_HTG' : 'DOP_TO_HTG',
       fromCurrency: paidCurrency,
@@ -237,18 +290,45 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
       amountFrom: cashierCalc.paidForeign,
       rateApplied: cashierCalc.rate,
       amountTo: cashierCalc.paidInHTG,
-      clientOrBeneficiary: 'Règlement Facture Client',
+      clientOrBeneficiary: cashierClientName.trim(),
+      clientPhone: cashierClientPhone.trim(),
       operator: sellers[0]?.name || 'Caissier',
+      billAmountHTG: cashierCalc.bill,
+      changeReturnedHTG: cashierCalc.changeHTG,
       notes: `Facture ${formatHTG(cashierCalc.bill)}. Reçu ${paidCurrency === 'USD' ? formatUSD(cashierCalc.paidForeign) : formatDOP(cashierCalc.paidForeign)}. Monnaie rendue: ${formatHTG(cashierCalc.changeHTG)}`,
-    });
+    };
 
-    showNotice(`Paiement de facture enregistré au registre avec rendu de ${formatHTG(cashierCalc.changeHTG)}.`);
+    const createdTx = onAddTransaction(payload);
+    const now = Date.now();
+    const receiptTx: ExchangeTransaction = createdTx || {
+      ...payload,
+      id: `exc-${now}`,
+      receiptNumber: `CHG-${new Date().getFullYear()}-${String(now).slice(-4)}`,
+    };
+
+    setCashierErrors({});
+    setCashierClientName('');
+    setCashierClientPhone('');
+    setSelectedReceiptTx(receiptTx);
+    showNotice(
+      `Encaissement enregistré pour ${payload.clientOrBeneficiary} avec rendu de ${formatHTG(cashierCalc.changeHTG)}.`
+    );
   };
 
   // Add manual transaction
   const handleSaveManualTransaction = (e: React.FormEvent) => {
     e.preventDefault();
-    if (newTxData.amountFrom <= 0) return;
+    const validation = validateExchangeTransactionInput({
+      clientName: newTxData.clientOrBeneficiary,
+      clientPhone: newTxData.clientPhone,
+      amount: newTxData.amountFrom,
+      rate: newTxData.rateApplied,
+    });
+
+    if (!validation.valid) {
+      setManualTxErrors(validation.errors);
+      return;
+    }
 
     let fromCurrency: 'USD' | 'DOP' | 'HTG' = 'USD';
     let toCurrency: 'USD' | 'DOP' | 'HTG' = 'HTG';
@@ -276,7 +356,7 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
       amountTo = newTxData.amountFrom * newTxData.rateApplied;
     }
 
-    onAddTransaction({
+    const payload: Omit<ExchangeTransaction, 'id'> = {
       date: new Date().toISOString(),
       type: newTxData.type,
       fromCurrency,
@@ -284,12 +364,23 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
       amountFrom: newTxData.amountFrom,
       rateApplied: newTxData.rateApplied,
       amountTo,
-      clientOrBeneficiary: newTxData.clientOrBeneficiary || 'Client Divers',
+      clientOrBeneficiary: newTxData.clientOrBeneficiary.trim(),
+      clientPhone: newTxData.clientPhone.trim(),
       operator: newTxData.operator,
-      notes: newTxData.notes,
-    });
+      notes: newTxData.notes.trim(),
+    };
 
+    const createdTx = onAddTransaction(payload);
+    const now = Date.now();
+    const receiptTx: ExchangeTransaction = createdTx || {
+      ...payload,
+      id: `exc-${now}`,
+      receiptNumber: `CHG-${new Date().getFullYear()}-${String(now).slice(-4)}`,
+    };
+
+    setManualTxErrors({});
     setIsAddTransactionModalOpen(false);
+    setSelectedReceiptTx(receiptTx);
     showNotice('Transaction enregistrée au registre de change.');
   };
 
@@ -305,13 +396,20 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
     return formatHTG(val);
   };
 
-  // Filtered transactions
+  // Filtered transactions (inclut nom du client et numéro de téléphone)
   const filteredTransactions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const qDigits = q.replace(/\s+/g, '');
+
     return transactions.filter((tx) => {
+      const phoneNormalized = (tx.clientPhone || '').toLowerCase().replace(/\s+/g, '');
       const matchSearch =
-        tx.clientOrBeneficiary?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        tx.operator.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        tx.notes?.toLowerCase().includes(searchQuery.toLowerCase());
+        !q ||
+        tx.clientOrBeneficiary?.toLowerCase().includes(q) ||
+        tx.clientPhone?.toLowerCase().includes(q) ||
+        (qDigits.length > 0 && phoneNormalized.includes(qDigits)) ||
+        tx.operator.toLowerCase().includes(q) ||
+        tx.notes?.toLowerCase().includes(q);
 
       if (!matchSearch) return false;
 
@@ -326,7 +424,14 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
   }, [transactions, searchQuery, typeFilter]);
 
   // Tri multi-colonnes et pagination du registre de change
-  type TxSortField = 'date' | 'type' | 'amountFrom' | 'rateApplied' | 'amountTo' | 'operator';
+  type TxSortField =
+    | 'date'
+    | 'clientOrBeneficiary'
+    | 'type'
+    | 'amountFrom'
+    | 'rateApplied'
+    | 'amountTo'
+    | 'operator';
   const {
     sortField,
     sortDirection,
@@ -343,7 +448,11 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
     defaultSortField: 'date',
     defaultSortDirection: 'desc',
     defaultPageSize: 10,
-    getSortValue: (tx, field) => (field === 'date' ? new Date(tx.date).getTime() : tx[field]),
+    getSortValue: (tx, field) => {
+      if (field === 'date') return new Date(tx.date).getTime();
+      if (field === 'clientOrBeneficiary') return tx.clientOrBeneficiary || '';
+      return tx[field];
+    },
   });
 
   // Totals in transactions
@@ -361,19 +470,33 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
     return { totalUsdCollected, totalDopCollected, totalHtgDisbursedOrExchanged };
   }, [transactions]);
 
-  // Export CSV
+  // Export CSV (Client, Téléphone, puis Montants)
   const handleExportCSV = () => {
-    const headers = ['ID', 'Date', 'Type', 'Devise Depart', 'Montant Depart', 'Taux Applique', 'Devise Arrivee', 'Montant Arrivee (HTG)', 'Client/Beneficiaire', 'Operateur', 'Notes'];
+    const headers = [
+      'ID',
+      'Date',
+      'Nom Client',
+      'Telephone Client',
+      'Type',
+      'Devise Depart',
+      'Montant Depart',
+      'Taux Applique',
+      'Devise Arrivee',
+      'Montant Arrivee',
+      'Operateur',
+      'Notes',
+    ];
     const rows = filteredTransactions.map((tx) => [
       tx.id,
       new Date(tx.date).toLocaleString('fr-FR'),
+      `"${tx.clientOrBeneficiary || ''}"`,
+      `"${tx.clientPhone || ''}"`,
       tx.type,
       tx.fromCurrency,
       tx.amountFrom,
       tx.rateApplied,
       tx.toCurrency,
       tx.amountTo,
-      `"${tx.clientOrBeneficiary || ''}"`,
       `"${tx.operator}"`,
       `"${tx.notes || ''}"`,
     ]);
@@ -444,12 +567,14 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                   amountFrom: 100,
                   rateApplied: rates.usdToHtgReference,
                   clientOrBeneficiary: '',
+                  clientPhone: '',
                   operator: sellers[0]?.name || 'Caissier',
                   notes: '',
                 });
+                setManualTxErrors({});
                 setIsAddTransactionModalOpen(true);
               }}
-              className="px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+              className="px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               <PlusCircle className="w-3.5 h-3.5" />
               <span>Enregistrer Opération</span>
@@ -720,12 +845,114 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
               )}
             </div>
 
-            {/* Input & Output Block */}
+            {/* Input & Output Block : 1. Nom du client -> 2. Téléphone -> 3. Montant */}
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-4">
-              {/* Source Input */}
+              {/* Identification du client (Nom puis Téléphone) */}
+              <div className="space-y-2.5 pb-3 border-b border-slate-200/80">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-800">
+                    Identification du client
+                  </span>
+                  {customers.length > 0 && (
+                    <select
+                      aria-label="Pré-remplir avec un client enregistré"
+                      defaultValue=""
+                      onChange={(e) => {
+                        const selected = customers.find((c) => c.id === e.target.value);
+                        if (selected) {
+                          setConverterClientName(
+                            selected.company ? `${selected.company} (${selected.name})` : selected.name
+                          );
+                          setConverterClientPhone(selected.phone || '');
+                          setConverterErrors((prev) => {
+                            const next = { ...prev };
+                            delete next.clientName;
+                            delete next.clientPhone;
+                            return next;
+                          });
+                        }
+                      }}
+                      className="px-2.5 py-1 text-[11px] bg-white border border-slate-300 rounded-lg text-slate-700 focus:outline-none focus:ring-1 focus:ring-amber-500 max-w-[230px]"
+                    >
+                      <option value="">Sélection rapide client...</option>
+                      {customers.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.company ? `${c.company} — ${c.name}` : c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 block mb-1">
+                      Nom du client <span className="text-rose-600">*</span>
+                    </label>
+                    <div className="relative">
+                      <User className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={converterClientName}
+                        onChange={(e) => {
+                          setConverterClientName(e.target.value);
+                          if (converterErrors.clientName) {
+                            setConverterErrors((prev) => ({ ...prev, clientName: '' }));
+                          }
+                        }}
+                        placeholder="Nom complet ou établissement..."
+                        className={`w-full pl-8 pr-3 py-2 text-xs bg-white border rounded-lg focus:outline-none focus:ring-1 ${
+                          converterErrors.clientName
+                            ? 'border-rose-400 focus:ring-rose-500'
+                            : 'border-slate-300 focus:ring-amber-500'
+                        }`}
+                      />
+                    </div>
+                    {converterErrors.clientName && (
+                      <p className="mt-1 text-[11px] text-rose-600 font-medium">
+                        {converterErrors.clientName}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 block mb-1">
+                      Numéro de téléphone <span className="text-rose-600">*</span>
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="tel"
+                        value={converterClientPhone}
+                        onChange={(e) => {
+                          setConverterClientPhone(e.target.value);
+                          if (converterErrors.clientPhone) {
+                            setConverterErrors((prev) => ({ ...prev, clientPhone: '' }));
+                          }
+                        }}
+                        placeholder="+509 37 12 34 56"
+                        className={`w-full pl-8 pr-3 py-2 text-xs font-mono bg-white border rounded-lg focus:outline-none focus:ring-1 ${
+                          converterErrors.clientPhone
+                            ? 'border-rose-400 focus:ring-rose-500'
+                            : 'border-slate-300 focus:ring-amber-500'
+                        }`}
+                      />
+                    </div>
+                    {converterErrors.clientPhone && (
+                      <p className="mt-1 text-[11px] text-rose-600 font-medium">
+                        {converterErrors.clientPhone}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Source Input (Montant) */}
               <div>
                 <div className="flex items-center justify-between text-xs font-medium text-slate-600 mb-1">
-                  <span>Montant de départ :</span>
+                  <span>
+                    Montant de départ <span className="text-rose-600">*</span> :
+                  </span>
                   <span className="font-semibold text-slate-800">
                     {conversionMode === 'USD_TO_HTG' && 'Dollars Américains (USD)'}
                     {conversionMode === 'HTG_TO_USD' && 'Gourdes Haïtiennes (HTG)'}
@@ -741,9 +968,18 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                     min="0"
                     step="any"
                     value={amountInput}
-                    onChange={(e) => setAmountInput(e.target.value)}
+                    onChange={(e) => {
+                      setAmountInput(e.target.value);
+                      if (converterErrors.amount) {
+                        setConverterErrors((prev) => ({ ...prev, amount: '' }));
+                      }
+                    }}
                     placeholder="0.00"
-                    className="w-full pl-4 pr-16 py-3 text-2xl font-bold font-mono text-slate-900 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600"
+                    className={`w-full pl-4 pr-16 py-3 text-2xl font-bold font-mono tabular-nums text-slate-900 bg-white border rounded-lg focus:outline-none focus:ring-2 ${
+                      converterErrors.amount
+                        ? 'border-rose-400 focus:ring-rose-500/20'
+                        : 'border-slate-300 focus:ring-amber-500/20 focus:border-amber-600'
+                    }`}
                   />
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold font-mono text-slate-500 bg-slate-100 px-2 py-1 rounded">
                     {conversionMode === 'USD_TO_HTG' && 'USD'}
@@ -753,6 +989,11 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                     {conversionMode === 'USD_TO_DOP' && 'USD'}
                   </div>
                 </div>
+                {converterErrors.amount && (
+                  <p className="mt-1 text-[11px] text-rose-600 font-medium">
+                    {converterErrors.amount}
+                  </p>
+                )}
 
                 {/* Quick denomination helpers */}
                 <div className="flex items-center gap-1.5 mt-2 overflow-x-auto pb-1">
@@ -802,9 +1043,9 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                   </span>
                 </div>
 
-                <div className="p-4 bg-amber-50/60 border border-amber-200/80 rounded-lg flex items-center justify-between">
+                <div className="p-4 bg-amber-50/60 border border-amber-200/80 rounded-lg flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-2xl sm:text-3xl font-extrabold font-mono text-amber-950">
+                    <div className="text-2xl sm:text-3xl font-extrabold font-mono tabular-nums text-amber-950">
                       {conversionMode.endsWith('HTG')
                         ? formatHTG(convertedResult, { showCents: true })
                         : conversionMode.endsWith('USD')
@@ -819,8 +1060,7 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                   <button
                     type="button"
                     onClick={handleQuickRecordFromConverter}
-                    disabled={parsedAmount <= 0}
-                    className="px-3.5 py-2 text-xs font-semibold text-white bg-amber-700 hover:bg-amber-800 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg shadow-xs transition-colors flex items-center gap-1.5 shrink-0"
+                    className="px-3.5 py-2 text-xs font-semibold text-white bg-amber-700 hover:bg-amber-800 rounded-lg shadow-xs transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     <span>Enregistrer</span>
@@ -843,14 +1083,109 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                       Assistant Caisse & Rendu Monnaie
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      Pour les clients qui paient en devises étrangères
+                      Client, téléphone puis encaissement en devises
                     </p>
                   </div>
                 </div>
               </div>
 
               <div className="mt-4 space-y-3">
-                {/* Facture Montant en HTG */}
+                {/* Sélection rapide client pour caisse */}
+                {customers.length > 0 && (
+                  <div>
+                    <select
+                      aria-label="Client enregistré pour règlement"
+                      defaultValue=""
+                      onChange={(e) => {
+                        const selected = customers.find((c) => c.id === e.target.value);
+                        if (selected) {
+                          setCashierClientName(
+                            selected.company ? `${selected.company} (${selected.name})` : selected.name
+                          );
+                          setCashierClientPhone(selected.phone || '');
+                          setCashierErrors((prev) => {
+                            const next = { ...prev };
+                            delete next.clientName;
+                            delete next.clientPhone;
+                            return next;
+                          });
+                        }
+                      }}
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    >
+                      <option value="">Pré-remplir depuis les clients CHR (optionnel)...</option>
+                      {customers.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.company ? `${c.company} — ${c.name}` : c.name} ({c.phone})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* 1. Nom du client */}
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Nom du client <span className="text-rose-600">*</span> :
+                  </label>
+                  <div className="relative">
+                    <User className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={cashierClientName}
+                      onChange={(e) => {
+                        setCashierClientName(e.target.value);
+                        if (cashierErrors.clientName) {
+                          setCashierErrors((prev) => ({ ...prev, clientName: '' }));
+                        }
+                      }}
+                      placeholder="Nom complet ou établissement..."
+                      className={`w-full pl-8 pr-3 py-2 text-xs text-slate-900 border rounded-lg focus:outline-none focus:ring-1 ${
+                        cashierErrors.clientName
+                          ? 'border-rose-400 focus:ring-rose-500'
+                          : 'border-slate-300 focus:ring-amber-500'
+                      }`}
+                    />
+                  </div>
+                  {cashierErrors.clientName && (
+                    <p className="mt-1 text-[11px] text-rose-600 font-medium">
+                      {cashierErrors.clientName}
+                    </p>
+                  )}
+                </div>
+
+                {/* 2. Numéro de téléphone */}
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Numéro de téléphone <span className="text-rose-600">*</span> :
+                  </label>
+                  <div className="relative">
+                    <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="tel"
+                      value={cashierClientPhone}
+                      onChange={(e) => {
+                        setCashierClientPhone(e.target.value);
+                        if (cashierErrors.clientPhone) {
+                          setCashierErrors((prev) => ({ ...prev, clientPhone: '' }));
+                        }
+                      }}
+                      placeholder="+509 37 12 34 56"
+                      className={`w-full pl-8 pr-3 py-2 text-xs font-mono text-slate-900 border rounded-lg focus:outline-none focus:ring-1 ${
+                        cashierErrors.clientPhone
+                          ? 'border-rose-400 focus:ring-rose-500'
+                          : 'border-slate-300 focus:ring-amber-500'
+                      }`}
+                    />
+                  </div>
+                  {cashierErrors.clientPhone && (
+                    <p className="mt-1 text-[11px] text-rose-600 font-medium">
+                      {cashierErrors.clientPhone}
+                    </p>
+                  )}
+                </div>
+
+                {/* 3. Montant de la Facture en HTG */}
                 <div>
                   <label className="text-xs font-semibold text-slate-700 block mb-1">
                     Montant de la Facture (en Gourdes HTG) :
@@ -861,19 +1196,21 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                     value={billAmountHTG}
                     onChange={(e) => setBillAmountHTG(e.target.value)}
                     placeholder="ex: 15000"
-                    className="w-full px-3 py-2 text-sm font-bold font-mono text-slate-900 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    className="w-full px-3 py-2 text-sm font-bold font-mono tabular-nums text-slate-900 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
                   />
                 </div>
 
-                {/* Devise Reçue */}
+                {/* 4. Devise Reçue & Montant remis */}
                 <div>
                   <div className="flex items-center justify-between text-xs font-semibold text-slate-700 mb-1">
-                    <span>Devise & Montant remis par le client :</span>
+                    <span>
+                      Montant remis par le client <span className="text-rose-600">*</span> :
+                    </span>
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
                         onClick={() => setPaidCurrency('USD')}
-                        className={`px-2 py-0.5 text-xs rounded font-medium ${
+                        className={`px-2 py-0.5 text-xs rounded font-medium cursor-pointer ${
                           paidCurrency === 'USD'
                             ? 'bg-emerald-600 text-white font-bold'
                             : 'bg-slate-100 text-slate-600'
@@ -884,7 +1221,7 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                       <button
                         type="button"
                         onClick={() => setPaidCurrency('DOP')}
-                        className={`px-2 py-0.5 text-xs rounded font-medium ${
+                        className={`px-2 py-0.5 text-xs rounded font-medium cursor-pointer ${
                           paidCurrency === 'DOP'
                             ? 'bg-blue-600 text-white font-bold'
                             : 'bg-slate-100 text-slate-600'
@@ -901,14 +1238,28 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                       min="0"
                       step="any"
                       value={paidForeignAmount}
-                      onChange={(e) => setPaidForeignAmount(e.target.value)}
+                      onChange={(e) => {
+                        setPaidForeignAmount(e.target.value);
+                        if (cashierErrors.amount) {
+                          setCashierErrors((prev) => ({ ...prev, amount: '' }));
+                        }
+                      }}
                       placeholder="Montant remis..."
-                      className="w-full pl-3 pr-14 py-2 text-sm font-bold font-mono text-slate-900 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className={`w-full pl-3 pr-14 py-2 text-sm font-bold font-mono tabular-nums text-slate-900 border rounded-lg focus:outline-none focus:ring-1 ${
+                        cashierErrors.amount
+                          ? 'border-rose-400 focus:ring-rose-500'
+                          : 'border-slate-300 focus:ring-amber-500'
+                      }`}
                     />
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold font-mono text-slate-500">
                       {paidCurrency}
                     </div>
                   </div>
+                  {cashierErrors.amount && (
+                    <p className="mt-1 text-[11px] text-rose-600 font-medium">
+                      {cashierErrors.amount}
+                    </p>
+                  )}
                   <div className="text-[11px] text-slate-500 font-mono mt-1">
                     Équivaut à : {formatHTG(cashierCalc.paidInHTG)} au cours de {cashierCalc.rate.toFixed(2)} HTG
                   </div>
@@ -918,11 +1269,11 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                 <div className="mt-4 p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-600">Total Facture Client :</span>
-                    <span className="font-bold font-mono text-slate-900">{formatHTG(cashierCalc.bill)}</span>
+                    <span className="font-bold font-mono tabular-nums text-slate-900">{formatHTG(cashierCalc.bill)}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-600">Montant Reçu :</span>
-                    <span className="font-bold font-mono text-slate-900">
+                    <span className="font-bold font-mono tabular-nums text-slate-900">
                       {paidCurrency === 'USD' ? formatUSD(cashierCalc.paidForeign) : formatDOP(cashierCalc.paidForeign)} ({formatHTG(cashierCalc.paidInHTG)})
                     </span>
                   </div>
@@ -933,7 +1284,7 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                         <div className="text-xs font-semibold text-emerald-800">
                           Monnaie exacte à rendre au client :
                         </div>
-                        <div className="text-2xl font-black font-mono text-emerald-700">
+                        <div className="text-2xl font-black font-mono tabular-nums text-emerald-700">
                           {formatHTG(cashierCalc.changeHTG, { showCents: true })}
                         </div>
                         <div className="text-[11px] text-emerald-600 font-mono">
@@ -945,7 +1296,7 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                         <div className="text-xs font-semibold text-rose-700">
                           Montant insuffisant ! Reste à payer :
                         </div>
-                        <div className="text-xl font-bold font-mono text-rose-600">
+                        <div className="text-xl font-bold font-mono tabular-nums text-rose-600">
                           {formatHTG(cashierCalc.remainingDueHTG)}
                         </div>
                       </div>
@@ -962,8 +1313,7 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
             <button
               type="button"
               onClick={handleRecordCashierSale}
-              disabled={cashierCalc.paidForeign <= 0 || cashierCalc.remainingDueHTG > 0}
-              className="w-full py-2.5 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center justify-center gap-2 shadow-xs"
+              className="w-full py-2.5 px-4 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-xs cursor-pointer"
             >
               <Receipt className="w-3.5 h-3.5" />
               <span>Valider & Enregistrer dans la Caisse</span>
@@ -979,13 +1329,13 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center gap-2 w-full sm:w-auto">
               {/* Search */}
-              <div className="relative w-full sm:w-72">
+              <div className="relative w-full sm:w-80">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Rechercher client, opérateur, note..."
+                  placeholder="Rechercher client, téléphone, opérateur..."
                   className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
                 />
               </div>
@@ -1026,7 +1376,7 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
               <button
                 type="button"
                 onClick={handleExportCSV}
-                className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+                className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5 text-slate-500" />
                 <span>Exporter CSV</span>
@@ -1034,8 +1384,20 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
 
               <button
                 type="button"
-                onClick={() => setIsAddTransactionModalOpen(true)}
-                className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs"
+                onClick={() => {
+                  setNewTxData({
+                    type: 'USD_TO_HTG',
+                    amountFrom: 100,
+                    rateApplied: rates.usdToHtgReference,
+                    clientOrBeneficiary: '',
+                    clientPhone: '',
+                    operator: sellers[0]?.name || 'Caissier',
+                    notes: '',
+                  });
+                  setManualTxErrors({});
+                  setIsAddTransactionModalOpen(true);
+                }}
+                className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
               >
                 <PlusCircle className="w-3.5 h-3.5" />
                 <span>Nouvelle Opération</span>
@@ -1043,17 +1405,18 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
             </div>
           </div>
 
-          {/* Table */}
+          {/* Table : Date, Client, Téléphone, Opération, Montant Départ, Taux, Contre-valeur */}
           <div className="overflow-x-auto border border-slate-100 rounded-lg">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50/80 text-slate-600 font-semibold border-b border-slate-200">
                 <tr>
                   <SortableHeader label="Date & Heure" field="date" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                  <SortableHeader label="Nom du Client" field="clientOrBeneficiary" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
+                  <th className="py-2.5 px-3 whitespace-nowrap">Téléphone</th>
                   <SortableHeader label="Opération" field="type" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
                   <SortableHeader label="Montant Départ" field="amountFrom" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
                   <SortableHeader label="Taux Appliqué" field="rateApplied" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
-                  <SortableHeader label="Contre-valeur (HTG)" field="amountTo" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
-                  <th className="py-2.5 px-3">Client / Bénéficiaire</th>
+                  <SortableHeader label="Contre-valeur" field="amountTo" activeField={sortField} direction={sortDirection} onSort={toggleSort} align="right" />
                   <SortableHeader label="Opérateur" field="operator" activeField={sortField} direction={sortDirection} onSort={toggleSort} />
                   <th className="py-2.5 px-3">Notes</th>
                   <th className="py-2.5 px-3 text-center">Action</th>
@@ -1062,20 +1425,28 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
               <tbody className="divide-y divide-slate-100">
                 {paginatedTransactions.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-8 text-center text-slate-400">
+                    <td colSpan={10} className="py-8 text-center text-slate-400">
                       Aucune transaction de change trouvée pour cette sélection.
                     </td>
                   </tr>
                 ) : (
                   paginatedTransactions.map((tx) => (
                     <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500 whitespace-nowrap">
+                      <td className="py-2.5 px-3 font-mono tabular-nums text-[11px] text-slate-500 whitespace-nowrap">
                         {new Date(tx.date).toLocaleDateString('fr-FR', {
                           day: '2-digit',
                           month: 'short',
                           hour: '2-digit',
                           minute: '2-digit',
                         })}
+                      </td>
+
+                      <td className="py-2.5 px-3 font-semibold text-slate-900 max-w-[190px] truncate" title={tx.clientOrBeneficiary || ''}>
+                        {tx.clientOrBeneficiary || '—'}
+                      </td>
+
+                      <td className="py-2.5 px-3 font-mono tabular-nums text-slate-700 whitespace-nowrap">
+                        {tx.clientPhone || '—'}
                       </td>
 
                       <td className="py-2.5 px-3 font-medium whitespace-nowrap">
@@ -1089,39 +1460,45 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                         </span>
                       </td>
 
-                      <td className="py-2.5 px-3 font-mono font-bold text-slate-900 text-right whitespace-nowrap">
+                      <td className="py-2.5 px-3 font-mono tabular-nums font-bold text-slate-900 text-right whitespace-nowrap">
                         {formatAmount(tx.amountFrom, tx.fromCurrency)}
                       </td>
 
-                      <td className="py-2.5 px-3 font-mono text-slate-600 text-right whitespace-nowrap">
+                      <td className="py-2.5 px-3 font-mono tabular-nums text-slate-600 text-right whitespace-nowrap">
                         1 = {tx.rateApplied.toFixed(2)}
                       </td>
 
-                      <td className="py-2.5 px-3 font-mono font-bold text-amber-900 text-right whitespace-nowrap">
-                        {formatHTG(tx.amountTo)}
-                      </td>
-
-                      <td className="py-2.5 px-3 text-slate-700 max-w-[160px] truncate">
-                        {tx.clientOrBeneficiary || '—'}
+                      <td className="py-2.5 px-3 font-mono tabular-nums font-bold text-amber-900 text-right whitespace-nowrap">
+                        {formatAmount(tx.amountTo, tx.toCurrency)}
                       </td>
 
                       <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
                         {tx.operator}
                       </td>
 
-                      <td className="py-2.5 px-3 text-slate-400 text-[11px] max-w-[200px] truncate">
+                      <td className="py-2.5 px-3 text-slate-400 text-[11px] max-w-[180px] truncate" title={tx.notes || ''}>
                         {tx.notes || '—'}
                       </td>
 
                       <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => setTxToDelete(tx)}
-                          className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
-                          title="Supprimer cette écriture"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="inline-flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReceiptTx(tx)}
+                            className="p-1.5 hover:bg-amber-50 text-slate-500 hover:text-amber-700 rounded transition-colors cursor-pointer"
+                            title="Voir / imprimer la facture client"
+                          >
+                            <Receipt className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTxToDelete(tx)}
+                            className="p-1.5 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                            title="Supprimer cette écriture"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -1403,10 +1780,10 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
         </div>
       )}
 
-      {/* Modal: Add Manual Transaction */}
+      {/* Modal: Add Manual Transaction (Nom client -> Numéro téléphone -> Montant) */}
       {isAddTransactionModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] overflow-y-auto">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
               <div className="flex items-center gap-2">
                 <PlusCircle className="w-4 h-4 text-slate-900" />
@@ -1417,13 +1794,20 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsAddTransactionModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded"
+                className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveManualTransaction} className="p-5 space-y-3.5">
+            <form onSubmit={handleSaveManualTransaction} noValidate className="p-5 space-y-3.5">
+              {Object.values(manualTxErrors).some(Boolean) && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>Veuillez renseigner le nom du client, son téléphone et un montant valide.</span>
+                </div>
+              )}
+
               <div>
                 <label className="text-xs font-semibold text-slate-700 block mb-1">Type d'opération :</label>
                 <select
@@ -1445,41 +1829,166 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                 </select>
               </div>
 
+              {customers.length > 0 && (
+                <div>
+                  <label className="text-[11px] font-medium text-slate-500 block mb-1">
+                    Client existant (pré-remplissage rapide) :
+                  </label>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      const selected = customers.find((c) => c.id === e.target.value);
+                      if (selected) {
+                        setNewTxData((prev) => ({
+                          ...prev,
+                          clientOrBeneficiary: selected.company
+                            ? `${selected.company} (${selected.name})`
+                            : selected.name,
+                          clientPhone: selected.phone || '',
+                        }));
+                        setManualTxErrors((prev) => ({
+                          ...prev,
+                          clientName: '',
+                          clientPhone: '',
+                        }));
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+                  >
+                    <option value="">Choisir un client CHR (ou saisir manuellement ci-dessous)...</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.company ? `${c.company} — ${c.name}` : c.name} ({c.phone})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* 1. Nom du client */}
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  Nom du client <span className="text-rose-600">*</span> :
+                </label>
+                <div className="relative">
+                  <User className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="ex: Brasserie du Port, Jean Baptiste..."
+                    value={newTxData.clientOrBeneficiary}
+                    onChange={(e) => {
+                      setNewTxData({ ...newTxData, clientOrBeneficiary: e.target.value });
+                      if (manualTxErrors.clientName) {
+                        setManualTxErrors((prev) => ({ ...prev, clientName: '' }));
+                      }
+                    }}
+                    className={`w-full pl-8 pr-3 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-1 ${
+                      manualTxErrors.clientName
+                        ? 'border-rose-400 focus:ring-rose-500'
+                        : 'border-slate-300 focus:ring-amber-500'
+                    }`}
+                  />
+                </div>
+                {manualTxErrors.clientName && (
+                  <p className="mt-1 text-[11px] text-rose-600 font-medium">{manualTxErrors.clientName}</p>
+                )}
+              </div>
+
+              {/* 2. Numéro de téléphone */}
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                  Numéro de téléphone <span className="text-rose-600">*</span> :
+                </label>
+                <div className="relative">
+                  <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="tel"
+                    placeholder="ex: +509 37 12 34 56"
+                    value={newTxData.clientPhone}
+                    onChange={(e) => {
+                      setNewTxData({ ...newTxData, clientPhone: e.target.value });
+                      if (manualTxErrors.clientPhone) {
+                        setManualTxErrors((prev) => ({ ...prev, clientPhone: '' }));
+                      }
+                    }}
+                    className={`w-full pl-8 pr-3 py-1.5 text-xs font-mono border rounded-lg focus:outline-none focus:ring-1 ${
+                      manualTxErrors.clientPhone
+                        ? 'border-rose-400 focus:ring-rose-500'
+                        : 'border-slate-300 focus:ring-amber-500'
+                    }`}
+                  />
+                </div>
+                {manualTxErrors.clientPhone && (
+                  <p className="mt-1 text-[11px] text-rose-600 font-medium">{manualTxErrors.clientPhone}</p>
+                )}
+              </div>
+
+              {/* 3. Montant Départ & Taux Appliqué */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">Montant Départ :</label>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Montant Départ <span className="text-rose-600">*</span> :
+                  </label>
                   <input
                     type="number"
                     step="any"
-                    required
-                    min="1"
+                    min="0"
                     value={newTxData.amountFrom}
-                    onChange={(e) => setNewTxData({ ...newTxData, amountFrom: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-1.5 text-xs font-mono font-bold border border-slate-300 rounded-lg"
+                    onChange={(e) => {
+                      setNewTxData({ ...newTxData, amountFrom: parseFloat(e.target.value) || 0 });
+                      if (manualTxErrors.amount) {
+                        setManualTxErrors((prev) => ({ ...prev, amount: '' }));
+                      }
+                    }}
+                    className={`w-full px-3 py-1.5 text-xs font-mono tabular-nums font-bold border rounded-lg ${
+                      manualTxErrors.amount ? 'border-rose-400' : 'border-slate-300'
+                    }`}
                   />
+                  {manualTxErrors.amount && (
+                    <p className="mt-1 text-[11px] text-rose-600 font-medium">{manualTxErrors.amount}</p>
+                  )}
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">Taux Appliqué :</label>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Taux Appliqué <span className="text-rose-600">*</span> :
+                  </label>
                   <input
                     type="number"
                     step="0.01"
-                    required
+                    min="0"
                     value={newTxData.rateApplied}
-                    onChange={(e) => setNewTxData({ ...newTxData, rateApplied: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-1.5 text-xs font-mono font-bold border border-slate-300 rounded-lg"
+                    onChange={(e) => {
+                      setNewTxData({ ...newTxData, rateApplied: parseFloat(e.target.value) || 0 });
+                      if (manualTxErrors.rate) {
+                        setManualTxErrors((prev) => ({ ...prev, rate: '' }));
+                      }
+                    }}
+                    className={`w-full px-3 py-1.5 text-xs font-mono tabular-nums font-bold border rounded-lg ${
+                      manualTxErrors.rate ? 'border-rose-400' : 'border-slate-300'
+                    }`}
                   />
+                  {manualTxErrors.rate && (
+                    <p className="mt-1 text-[11px] text-rose-600 font-medium">{manualTxErrors.rate}</p>
+                  )}
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Client ou Bénéficiaire :</label>
-                <input
-                  type="text"
-                  placeholder="ex: Brasserie du Port, Chauffeur..."
-                  value={newTxData.clientOrBeneficiary}
-                  onChange={(e) => setNewTxData({ ...newTxData, clientOrBeneficiary: e.target.value })}
-                  className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg"
-                />
+              {/* Contre-valeur calculée en direct */}
+              <div className="px-3 py-2 rounded-lg bg-amber-50/70 border border-amber-200/80 flex items-center justify-between text-xs">
+                <span className="text-amber-900 font-medium">Contre-valeur calculée :</span>
+                <span className="font-mono tabular-nums font-bold text-amber-950">
+                  {newTxData.type === 'HTG_TO_USD'
+                    ? formatUSD(newTxData.rateApplied > 0 ? newTxData.amountFrom / newTxData.rateApplied : 0)
+                    : newTxData.type === 'HTG_TO_DOP' || newTxData.type === 'USD_TO_DOP'
+                    ? formatDOP(
+                        newTxData.type === 'HTG_TO_DOP'
+                          ? newTxData.rateApplied > 0
+                            ? newTxData.amountFrom / newTxData.rateApplied
+                            : 0
+                          : newTxData.amountFrom * newTxData.rateApplied
+                      )
+                    : formatHTG(newTxData.amountFrom * newTxData.rateApplied, { showCents: true })}
+                </span>
               </div>
 
               <div>
@@ -1512,13 +2021,13 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsAddTransactionModalOpen(false)}
-                  className="px-3.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+                  className="px-3.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-xs"
+                  className="px-4 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-xs cursor-pointer"
                 >
                   Enregistrer
                 </button>
@@ -1547,6 +2056,13 @@ export const CurrencyExchangeView: React.FC<CurrencyExchangeViewProps> = ({
           }
         }}
         onCancel={() => setTxToDelete(null)}
+      />
+
+      {/* Facture / Reçu Client affiché automatiquement après chaque transaction de change */}
+      <ExchangeReceiptModal
+        transaction={selectedReceiptTx}
+        settings={settings}
+        onClose={() => setSelectedReceiptTx(null)}
       />
     </div>
   );

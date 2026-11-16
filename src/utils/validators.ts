@@ -182,3 +182,43 @@ export function validateSellerInput(data: {
     errors,
   };
 }
+
+/**
+ * Valide une opération de change (nom du client, numéro de téléphone, montant et taux).
+ */
+export function validateExchangeTransactionInput(data: {
+  clientName: string;
+  clientPhone: string;
+  amount: number;
+  rate?: number;
+}): ValidationResult {
+  const errors: Record<string, string> = {};
+
+  if (!data.clientName || !data.clientName.trim()) {
+    errors.clientName = 'Le nom du client est obligatoire.';
+  } else if (data.clientName.trim().length < 2) {
+    errors.clientName = 'Le nom du client doit contenir au moins 2 caractères.';
+  }
+
+  if (!data.clientPhone || !data.clientPhone.trim()) {
+    errors.clientPhone = 'Le numéro de téléphone du client est obligatoire.';
+  } else if (!isValidPhone(data.clientPhone)) {
+    errors.clientPhone = 'Format de téléphone invalide (ex: +509 37 12 34 56).';
+  }
+
+  if (typeof data.amount !== 'number' || Number.isNaN(data.amount) || data.amount <= 0) {
+    errors.amount = 'Le montant doit être strictement positif.';
+  }
+
+  if (
+    data.rate !== undefined &&
+    (typeof data.rate !== 'number' || Number.isNaN(data.rate) || data.rate <= 0)
+  ) {
+    errors.rate = 'Le taux de change appliqué doit être strictement positif.';
+  }
+
+  return {
+    valid: Object.keys(errors).length === 0,
+    errors,
+  };
+}

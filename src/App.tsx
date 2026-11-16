@@ -960,6 +960,8 @@ export default function App() {
                       rates={exchangeRates}
                       transactions={exchangeTransactions}
                       sellers={sellers}
+                      customers={customers}
+                      settings={settings}
                       onUpdateRates={handleUpdateExchangeRates}
                       onAddTransaction={handleAddExchangeTransaction}
                       onDeleteTransaction={handleDeleteExchangeTransaction}
@@ -1163,6 +1165,8 @@ export default function App() {
                             rates={exchangeRates}
                             transactions={exchangeTransactions}
                             sellers={sellers}
+                            customers={customers}
+                            settings={settings}
                             onUpdateRates={handleUpdateExchangeRates}
                             onAddTransaction={handleAddExchangeTransaction}
                             onDeleteTransaction={handleDeleteExchangeTransaction}
