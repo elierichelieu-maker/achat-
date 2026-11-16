@@ -1,29 +1,39 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import {
-  getFirestore,
+  initializeFirestore,
   doc,
   getDocFromServer,
 } from 'firebase/firestore';
 import rawConfig from '../firebase-applet-config.json';
 
-// Allow overriding via environment variables (for Netlify/Vercel/GitHub Actions) or fallback to bundled json config
-const env = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {} as Record<string, string>;
+// Permet la surcharge via variables d'environnement Netlify/Vercel (VITE_FIREBASE_*) ou utilise firebase-applet-config.json
+const env = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : ({} as Record<string, string>);
+export const hasNetlifyEnvOverride = Boolean(
+  env.VITE_FIREBASE_PROJECT_ID || env.VITE_FIREBASE_DATABASE_ID || env.VITE_FIREBASE_API_KEY
+);
+
 export const firebaseConfig = {
-  projectId: env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId,
-  appId: env.VITE_FIREBASE_APP_ID || rawConfig.appId,
-  apiKey: env.VITE_FIREBASE_API_KEY || rawConfig.apiKey,
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain,
-  firestoreDatabaseId: env.VITE_FIREBASE_DATABASE_ID || rawConfig.firestoreDatabaseId,
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig.storageBucket,
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig.messagingSenderId,
-  measurementId: env.VITE_FIREBASE_MEASUREMENT_ID || rawConfig.measurementId || '',
+  projectId: (env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId || '').trim(),
+  appId: (env.VITE_FIREBASE_APP_ID || rawConfig.appId || '').trim(),
+  apiKey: (env.VITE_FIREBASE_API_KEY || rawConfig.apiKey || '').trim(),
+  authDomain: (env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain || '').trim(),
+  firestoreDatabaseId: (env.VITE_FIREBASE_DATABASE_ID || rawConfig.firestoreDatabaseId || '').trim(),
+  storageBucket: (env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig.storageBucket || '').trim(),
+  messagingSenderId: (env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig.messagingSenderId || '').trim(),
+  measurementId: (env.VITE_FIREBASE_MEASUREMENT_ID || rawConfig.measurementId || '').trim(),
 };
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore using canonical getFirestore without multi-tab lease race conditions
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// experimentalAutoDetectLongPolling garantit la connexion temps réel même derrière des proxys/réseaux mobiles ou Netlify Edge
+export const db = initializeFirestore(
+  app,
+  {
+    experimentalAutoDetectLongPolling: true,
+  },
+  firebaseConfig.firestoreDatabaseId
+);
 export const auth = getAuth(app);
 
 export enum OperationType {

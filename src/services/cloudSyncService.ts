@@ -6,7 +6,9 @@ import {
   onSnapshot,
   getDocs,
   getDoc,
+  getDocFromServer,
   writeBatch,
+  DocumentReference,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import {
@@ -42,86 +44,160 @@ export const COLLECTIONS = {
   EXCHANGE_TRANSACTIONS: 'exchange_transactions',
 };
 
-// Seed initial data if Firestore is empty (runs only once per device)
-// Seed initial data if Firestore is empty
-export async function seedInitialDataIfEmpty() {
-  try {
-    const productsSnap = await getDocs(collection(db, COLLECTIONS.PRODUCTS));
-    if (productsSnap.empty) {
-      console.log('Seeding initial data into Firestore...');
-      const batch = writeBatch(db);
+let hasInitialSeedSettled = false;
+let seedingInFlight: Promise<void> | null = null;
 
-      // Seed Products
-      INITIAL_PRODUCTS.forEach((p) => {
-        batch.set(doc(db, COLLECTIONS.PRODUCTS, p.id), p);
-      });
-
-      // Seed Sellers
-      INITIAL_SELLERS.forEach((s) => {
-        batch.set(doc(db, COLLECTIONS.SELLERS, s.id), s);
-      });
-
-      // Seed Customers
-      INITIAL_CUSTOMERS.forEach((c) => {
-        batch.set(doc(db, COLLECTIONS.CUSTOMERS, c.id), c);
-      });
-
-      // Seed Sales
-      const initialSales = generateInitialSales();
-      initialSales.forEach((sale) => {
-        batch.set(doc(db, COLLECTIONS.SALES, sale.id), sale);
-      });
-
-      // Seed Movements
-      INITIAL_MOVEMENTS.forEach((m) => {
-        batch.set(doc(db, COLLECTIONS.MOVEMENTS, m.id), m);
-      });
-
-      // Protect Settings: Never overwrite existing user settings if document exists in Firestore
-      const settingsSnap = await getDoc(doc(db, COLLECTIONS.SETTINGS, 'global'));
-      if (!settingsSnap.exists()) {
-        let initialSettings = DEFAULT_SETTINGS;
-        try {
-          const stored = localStorage.getItem('optiboissons_settings_v2');
-          if (stored) {
-            const parsed = JSON.parse(stored);
-            if (parsed && typeof parsed === 'object' && parsed.companyName) {
-              initialSettings = parsed;
-            }
-          }
-        } catch {
-          // ignore
-        }
-        batch.set(doc(db, COLLECTIONS.SETTINGS, 'global'), {
-          ...initialSettings,
-          updatedAt: initialSettings.updatedAt || new Date().toISOString(),
-        });
+/**
+ * Supprime récursivement toute propriété undefined avant écriture dans Firestore
+ * (Firestore rejette les champs undefined dans setDoc et writeBatch).
+ */
+export function sanitizeForFirestore<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (value !== null && typeof value === 'object') {
+    const cleaned: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v !== undefined) {
+        cleaned[k] = sanitizeForFirestore(v);
       }
-
-      // Protect Exchange Rates: Only seed if current rate doc does not exist
-      const ratesSnap = await getDoc(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'));
-      if (!ratesSnap.exists()) {
-        batch.set(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'), DEFAULT_EXCHANGE_RATES);
-      }
-
-      // Seed Exchange Transactions (nettoyage des champs undefined)
-      INITIAL_EXCHANGE_TRANSACTIONS.forEach((tx) => {
-        const cleanTx = Object.fromEntries(
-          Object.entries(tx).filter(([, v]) => v !== undefined)
-        );
-        batch.set(doc(db, COLLECTIONS.EXCHANGE_TRANSACTIONS, tx.id), cleanTx);
-      });
-
-      await batch.commit();
-      console.log('Initial Firestore seeding complete.');
     }
-  } catch (error) {
-    console.error('Error seeding initial data:', error);
+    return cleaned as T;
+  }
+  return value;
+}
+
+interface BatchWriteOp {
+  ref: DocumentReference;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Exécute les écritures par lots de 400 opérations maximum (limite Firestore : 500/lot).
+ */
+async function commitSetOpsInChunks(ops: BatchWriteOp[], chunkSize = 400): Promise<void> {
+  for (let i = 0; i < ops.length; i += chunkSize) {
+    const batch = writeBatch(db);
+    const slice = ops.slice(i, i + chunkSize);
+    slice.forEach((op) => {
+      batch.set(op.ref, sanitizeForFirestore(op.data));
+    });
+    await batch.commit();
   }
 }
 
+/**
+ * Formate et remonte proprement une erreur de snapshot temps réel vers l'interface.
+ */
+function reportSnapshotError(
+  error: unknown,
+  operationType: OperationType,
+  path: string,
+  onError?: (err: Error) => void
+) {
+  try {
+    handleFirestoreError(error, operationType, path);
+  } catch (structuredError) {
+    if (onError) {
+      onError(structuredError instanceof Error ? structuredError : new Error(String(structuredError)));
+    }
+  }
+}
+
+/**
+ * Initialise les données de démonstration uniquement si Firestore est vide (verrou anti-course).
+ */
+export async function seedInitialDataIfEmpty(): Promise<void> {
+  if (seedingInFlight) {
+    return seedingInFlight;
+  }
+
+  seedingInFlight = (async () => {
+    try {
+      const productsSnap = await getDocs(collection(db, COLLECTIONS.PRODUCTS));
+      if (productsSnap.empty) {
+        console.log('Seeding initial data into Firestore...');
+        const ops: BatchWriteOp[] = [];
+
+        INITIAL_PRODUCTS.forEach((p) => {
+          ops.push({ ref: doc(db, COLLECTIONS.PRODUCTS, p.id), data: p as unknown as Record<string, unknown> });
+        });
+
+        INITIAL_SELLERS.forEach((s) => {
+          ops.push({ ref: doc(db, COLLECTIONS.SELLERS, s.id), data: s as unknown as Record<string, unknown> });
+        });
+
+        INITIAL_CUSTOMERS.forEach((c) => {
+          ops.push({ ref: doc(db, COLLECTIONS.CUSTOMERS, c.id), data: c as unknown as Record<string, unknown> });
+        });
+
+        const initialSales = generateInitialSales();
+        initialSales.forEach((sale) => {
+          ops.push({ ref: doc(db, COLLECTIONS.SALES, sale.id), data: sale as unknown as Record<string, unknown> });
+        });
+
+        INITIAL_MOVEMENTS.forEach((m) => {
+          ops.push({ ref: doc(db, COLLECTIONS.MOVEMENTS, m.id), data: m as unknown as Record<string, unknown> });
+        });
+
+        const settingsSnap = await getDoc(doc(db, COLLECTIONS.SETTINGS, 'global'));
+        if (!settingsSnap.exists()) {
+          let initialSettings = DEFAULT_SETTINGS;
+          try {
+            const stored = localStorage.getItem('optiboissons_settings_v2');
+            if (stored) {
+              const parsed = JSON.parse(stored);
+              if (parsed && typeof parsed === 'object' && parsed.companyName) {
+                initialSettings = parsed;
+              }
+            }
+          } catch {
+            // ignore
+          }
+          ops.push({
+            ref: doc(db, COLLECTIONS.SETTINGS, 'global'),
+            data: {
+              ...initialSettings,
+              updatedAt: initialSettings.updatedAt || new Date().toISOString(),
+            },
+          });
+        }
+
+        const ratesSnap = await getDoc(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'));
+        if (!ratesSnap.exists()) {
+          ops.push({
+            ref: doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'),
+            data: DEFAULT_EXCHANGE_RATES as unknown as Record<string, unknown>,
+          });
+        }
+
+        INITIAL_EXCHANGE_TRANSACTIONS.forEach((tx) => {
+          ops.push({
+            ref: doc(db, COLLECTIONS.EXCHANGE_TRANSACTIONS, tx.id),
+            data: tx as unknown as Record<string, unknown>,
+          });
+        });
+
+        await commitSetOpsInChunks(ops);
+        console.log('Initial Firestore seeding complete.');
+      }
+      hasInitialSeedSettled = true;
+    } catch (error) {
+      console.error('Error seeding initial data:', error);
+      throw error;
+    } finally {
+      seedingInFlight = null;
+    }
+  })();
+
+  return seedingInFlight;
+}
+
 // Subscriptions - Real-time sync across AI Studio, GitHub and Netlify
-export function subscribeToProducts(callback: (products: Product[]) => void) {
+export function subscribeToProducts(
+  callback: (products: Product[], fromServer: boolean) => void,
+  onError?: (err: Error) => void
+) {
   const path = COLLECTIONS.PRODUCTS;
   return onSnapshot(
     collection(db, path),
@@ -130,19 +206,26 @@ export function subscribeToProducts(callback: (products: Product[]) => void) {
       snapshot.forEach((docSnap) => {
         items.push(docSnap.data() as Product);
       });
-      // Always propagate live snapshot array (or trigger seed if initially empty)
+      const fromServer = !snapshot.metadata.fromCache;
       if (items.length > 0) {
-        callback(items);
+        hasInitialSeedSettled = true;
+        callback(items, fromServer);
+      } else if (hasInitialSeedSettled && fromServer) {
+        callback([], true);
       } else {
-        // If empty on remote Firestore, seed initial dataset so all pages populate
-        seedInitialDataIfEmpty();
+        seedInitialDataIfEmpty().catch((err) => {
+          onError?.(err instanceof Error ? err : new Error(String(err)));
+        });
       }
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => reportSnapshotError(error, OperationType.LIST, path, onError)
   );
 }
 
-export function subscribeToSellers(callback: (sellers: Seller[]) => void) {
+export function subscribeToSellers(
+  callback: (sellers: Seller[], fromServer: boolean) => void,
+  onError?: (err: Error) => void
+) {
   const path = COLLECTIONS.SELLERS;
   return onSnapshot(
     collection(db, path),
@@ -151,15 +234,19 @@ export function subscribeToSellers(callback: (sellers: Seller[]) => void) {
       snapshot.forEach((docSnap) => {
         items.push(docSnap.data() as Seller);
       });
-      if (items.length > 0) {
-        callback(items);
+      const fromServer = !snapshot.metadata.fromCache;
+      if (items.length > 0 || (hasInitialSeedSettled && fromServer)) {
+        callback(items, fromServer);
       }
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => reportSnapshotError(error, OperationType.LIST, path, onError)
   );
 }
 
-export function subscribeToCustomers(callback: (customers: Customer[]) => void) {
+export function subscribeToCustomers(
+  callback: (customers: Customer[], fromServer: boolean) => void,
+  onError?: (err: Error) => void
+) {
   const path = COLLECTIONS.CUSTOMERS;
   return onSnapshot(
     collection(db, path),
@@ -168,15 +255,19 @@ export function subscribeToCustomers(callback: (customers: Customer[]) => void) 
       snapshot.forEach((docSnap) => {
         items.push(docSnap.data() as Customer);
       });
-      if (items.length > 0) {
-        callback(items);
+      const fromServer = !snapshot.metadata.fromCache;
+      if (items.length > 0 || (hasInitialSeedSettled && fromServer)) {
+        callback(items, fromServer);
       }
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => reportSnapshotError(error, OperationType.LIST, path, onError)
   );
 }
 
-export function subscribeToSales(callback: (sales: Sale[]) => void) {
+export function subscribeToSales(
+  callback: (sales: Sale[], fromServer: boolean) => void,
+  onError?: (err: Error) => void
+) {
   const path = COLLECTIONS.SALES;
   return onSnapshot(
     collection(db, path),
@@ -185,17 +276,20 @@ export function subscribeToSales(callback: (sales: Sale[]) => void) {
       snapshot.forEach((docSnap) => {
         items.push(docSnap.data() as Sale);
       });
-      if (items.length > 0) {
-        // Sort by date descending
+      const fromServer = !snapshot.metadata.fromCache;
+      if (items.length > 0 || (hasInitialSeedSettled && fromServer)) {
         items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        callback(items);
+        callback(items, fromServer);
       }
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => reportSnapshotError(error, OperationType.LIST, path, onError)
   );
 }
 
-export function subscribeToMovements(callback: (movements: StockMovement[]) => void) {
+export function subscribeToMovements(
+  callback: (movements: StockMovement[], fromServer: boolean) => void,
+  onError?: (err: Error) => void
+) {
   const path = COLLECTIONS.MOVEMENTS;
   return onSnapshot(
     collection(db, path),
@@ -204,24 +298,28 @@ export function subscribeToMovements(callback: (movements: StockMovement[]) => v
       snapshot.forEach((docSnap) => {
         items.push(docSnap.data() as StockMovement);
       });
-      if (items.length > 0) {
+      const fromServer = !snapshot.metadata.fromCache;
+      if (items.length > 0 || (hasInitialSeedSettled && fromServer)) {
         items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        callback(items);
+        callback(items, fromServer);
       }
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => reportSnapshotError(error, OperationType.LIST, path, onError)
   );
 }
 
-export function subscribeToSettings(callback: (settings: AppSettings) => void) {
+export function subscribeToSettings(
+  callback: (settings: AppSettings, fromServer: boolean) => void,
+  onError?: (err: Error) => void
+) {
   const path = COLLECTIONS.SETTINGS;
   return onSnapshot(
     doc(db, path, 'global'),
     (docSnap) => {
+      const fromServer = !docSnap.metadata.fromCache;
       if (docSnap.exists()) {
-        callback(docSnap.data() as AppSettings);
+        callback(docSnap.data() as AppSettings, fromServer);
       } else {
-        // Only seed if completely missing in Firestore, preserving any local customized settings
         let fallback = DEFAULT_SETTINGS;
         try {
           const stored = localStorage.getItem('optiboissons_settings_v2');
@@ -231,35 +329,46 @@ export function subscribeToSettings(callback: (settings: AppSettings) => void) {
               fallback = parsed;
             }
           }
-        } catch {}
+        } catch {
+          // ignore
+        }
         const stamped: AppSettings = {
           ...fallback,
           updatedAt: fallback.updatedAt || new Date().toISOString(),
         };
-        setDoc(doc(db, COLLECTIONS.SETTINGS, 'global'), stamped, { merge: true }).catch(() => {});
-        callback(stamped);
+        setDoc(doc(db, COLLECTIONS.SETTINGS, 'global'), sanitizeForFirestore(stamped), { merge: true }).catch(() => {});
+        callback(stamped, fromServer);
       }
     },
-    (error) => handleFirestoreError(error, OperationType.GET, path)
+    (error) => reportSnapshotError(error, OperationType.GET, path, onError)
   );
 }
 
-export function subscribeToExchangeRates(callback: (rates: ExchangeRateConfig) => void) {
+export function subscribeToExchangeRates(
+  callback: (rates: ExchangeRateConfig, fromServer: boolean) => void,
+  onError?: (err: Error) => void
+) {
   const path = COLLECTIONS.EXCHANGE_RATES;
   return onSnapshot(
     doc(db, path, 'current'),
     (docSnap) => {
+      const fromServer = !docSnap.metadata.fromCache;
       if (docSnap.exists()) {
-        callback(docSnap.data() as ExchangeRateConfig);
+        callback(docSnap.data() as ExchangeRateConfig, fromServer);
       } else {
-        setDoc(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'), DEFAULT_EXCHANGE_RATES).catch(() => {});
+        setDoc(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'), sanitizeForFirestore(DEFAULT_EXCHANGE_RATES)).catch(
+          () => {}
+        );
       }
     },
-    (error) => handleFirestoreError(error, OperationType.GET, path)
+    (error) => reportSnapshotError(error, OperationType.GET, path, onError)
   );
 }
 
-export function subscribeToExchangeTransactions(callback: (txs: ExchangeTransaction[]) => void) {
+export function subscribeToExchangeTransactions(
+  callback: (txs: ExchangeTransaction[], fromServer: boolean) => void,
+  onError?: (err: Error) => void
+) {
   const path = COLLECTIONS.EXCHANGE_TRANSACTIONS;
   return onSnapshot(
     collection(db, path),
@@ -268,12 +377,13 @@ export function subscribeToExchangeTransactions(callback: (txs: ExchangeTransact
       snapshot.forEach((docSnap) => {
         items.push(docSnap.data() as ExchangeTransaction);
       });
-      if (items.length > 0) {
+      const fromServer = !snapshot.metadata.fromCache;
+      if (items.length > 0 || (hasInitialSeedSettled && fromServer)) {
         items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        callback(items);
+        callback(items, fromServer);
       }
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, path)
+    (error) => reportSnapshotError(error, OperationType.LIST, path, onError)
   );
 }
 
@@ -289,86 +399,112 @@ export interface FullAppDataPayload {
 }
 
 /**
- * Force a synchronized push of all application data from all pages into Firebase Firestore.
- * This guarantees that Netlify, GitHub, and this workspace share 100% identical data.
+ * Force une consolidation complète et découpée par lots vers Cloud Firestore.
+ * Garantit que Netlify, GitHub et cet espace partagent 100% des mêmes données.
  */
-export async function forceFullCloudSync(data: FullAppDataPayload): Promise<{ success: boolean; totalItems: number }> {
+export async function forceFullCloudSync(
+  data: FullAppDataPayload
+): Promise<{ success: boolean; totalItems: number }> {
   try {
-    const batch = writeBatch(db);
-    let totalItems = 0;
+    const ops: BatchWriteOp[] = [];
 
     data.products.forEach((p) => {
-      batch.set(doc(db, COLLECTIONS.PRODUCTS, p.id), p);
-      totalItems++;
+      ops.push({ ref: doc(db, COLLECTIONS.PRODUCTS, p.id), data: p as unknown as Record<string, unknown> });
     });
 
     data.sellers.forEach((s) => {
-      batch.set(doc(db, COLLECTIONS.SELLERS, s.id), s);
-      totalItems++;
+      ops.push({ ref: doc(db, COLLECTIONS.SELLERS, s.id), data: s as unknown as Record<string, unknown> });
     });
 
     data.customers.forEach((c) => {
-      batch.set(doc(db, COLLECTIONS.CUSTOMERS, c.id), c);
-      totalItems++;
+      ops.push({ ref: doc(db, COLLECTIONS.CUSTOMERS, c.id), data: c as unknown as Record<string, unknown> });
     });
 
     data.sales.forEach((s) => {
-      batch.set(doc(db, COLLECTIONS.SALES, s.id), s);
-      totalItems++;
+      ops.push({ ref: doc(db, COLLECTIONS.SALES, s.id), data: s as unknown as Record<string, unknown> });
     });
 
     data.movements.forEach((m) => {
-      batch.set(doc(db, COLLECTIONS.MOVEMENTS, m.id), m);
-      totalItems++;
+      ops.push({ ref: doc(db, COLLECTIONS.MOVEMENTS, m.id), data: m as unknown as Record<string, unknown> });
     });
 
     const stampedSettings: AppSettings = {
       ...data.settings,
       updatedAt: data.settings.updatedAt || new Date().toISOString(),
     };
-    batch.set(doc(db, COLLECTIONS.SETTINGS, 'global'), stampedSettings);
-    totalItems++;
-
-    batch.set(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'), data.exchangeRates);
-    totalItems++;
-
-    data.exchangeTransactions.forEach((tx) => {
-      const cleanTx = Object.fromEntries(
-        Object.entries(tx).filter(([, v]) => v !== undefined)
-      );
-      batch.set(doc(db, COLLECTIONS.EXCHANGE_TRANSACTIONS, tx.id), cleanTx);
-      totalItems++;
+    ops.push({
+      ref: doc(db, COLLECTIONS.SETTINGS, 'global'),
+      data: stampedSettings as unknown as Record<string, unknown>,
     });
 
-    await batch.commit();
-    return { success: true, totalItems };
+    ops.push({
+      ref: doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'),
+      data: data.exchangeRates as unknown as Record<string, unknown>,
+    });
+
+    data.exchangeTransactions.forEach((tx) => {
+      ops.push({
+        ref: doc(db, COLLECTIONS.EXCHANGE_TRANSACTIONS, tx.id),
+        data: tx as unknown as Record<string, unknown>,
+      });
+    });
+
+    await commitSetOpsInChunks(ops);
+    return { success: true, totalItems: ops.length };
   } catch (error) {
     console.error('Error in forceFullCloudSync:', error);
     throw error;
   }
 }
 
+export interface PingResult {
+  connected: boolean;
+  latencyMs: number;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 /**
- * Ping Firebase Firestore to verify live latency and connection status
+ * Vérifie en direct la latence et les droits d'écriture/lecture serveur sur Firestore.
  */
-export async function pingCloudConnection(): Promise<{ connected: boolean; latencyMs: number }> {
+export async function pingCloudConnection(): Promise<PingResult> {
   const start = performance.now();
   try {
     await setDoc(doc(db, 'test', 'ping'), {
       timestamp: new Date().toISOString(),
     });
+    await getDocFromServer(doc(db, 'test', 'ping'));
     const latencyMs = Math.round(performance.now() - start);
     return { connected: true, latencyMs };
-  } catch (error) {
+  } catch (error: unknown) {
     console.warn('Ping cloud connection failed:', error);
-    return { connected: false, latencyMs: 0 };
+    const errObj = error as { code?: string; message?: string };
+    return {
+      connected: false,
+      latencyMs: 0,
+      errorCode: errObj?.code || 'unknown',
+      errorMessage: errObj?.message || (error instanceof Error ? error.message : String(error)),
+    };
   }
 }
 
+export interface CloudStatsResult {
+  productsCount: number;
+  sellersCount: number;
+  customersCount: number;
+  salesCount: number;
+  movementsCount: number;
+  exchangeTransactionsCount: number;
+  isConnected: boolean;
+  lastChecked: string;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
 /**
- * Fetch document counts from Firestore across all collections to verify multi-device sync
+ * Récupère les compteurs de documents Firestore pour vérifier la synchro multi-appareils.
  */
-export async function fetchCloudStats() {
+export async function fetchCloudStats(): Promise<CloudStatsResult> {
   try {
     const [pSnap, selSnap, cSnap, sSnap, mSnap, txSnap] = await Promise.all([
       getDocs(collection(db, COLLECTIONS.PRODUCTS)),
@@ -388,8 +524,9 @@ export async function fetchCloudStats() {
       isConnected: true,
       lastChecked: new Date().toLocaleTimeString('fr-FR'),
     };
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error fetching cloud stats:', error);
+    const errObj = error as { code?: string; message?: string };
     return {
       productsCount: 0,
       sellersCount: 0,
@@ -399,18 +536,17 @@ export async function fetchCloudStats() {
       exchangeTransactionsCount: 0,
       isConnected: false,
       lastChecked: new Date().toLocaleTimeString('fr-FR'),
+      errorCode: errObj?.code || 'unknown',
+      errorMessage: errObj?.message || (error instanceof Error ? error.message : String(error)),
     };
   }
 }
 
-// Write helpers
+// Write helpers (tous nettoyés avec sanitizeForFirestore)
 export async function syncSaveProduct(product: Product) {
   const path = `${COLLECTIONS.PRODUCTS}/${product.id}`;
   try {
-    const cleanProduct = Object.fromEntries(
-      Object.entries(product).filter(([, v]) => v !== undefined)
-    );
-    await setDoc(doc(db, COLLECTIONS.PRODUCTS, product.id), cleanProduct);
+    await setDoc(doc(db, COLLECTIONS.PRODUCTS, product.id), sanitizeForFirestore(product));
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
@@ -428,7 +564,7 @@ export async function syncDeleteProduct(productId: string) {
 export async function syncSaveSeller(seller: Seller) {
   const path = `${COLLECTIONS.SELLERS}/${seller.id}`;
   try {
-    await setDoc(doc(db, COLLECTIONS.SELLERS, seller.id), seller);
+    await setDoc(doc(db, COLLECTIONS.SELLERS, seller.id), sanitizeForFirestore(seller));
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
@@ -446,7 +582,7 @@ export async function syncDeleteSeller(sellerId: string) {
 export async function syncSaveCustomer(customer: Customer) {
   const path = `${COLLECTIONS.CUSTOMERS}/${customer.id}`;
   try {
-    await setDoc(doc(db, COLLECTIONS.CUSTOMERS, customer.id), customer);
+    await setDoc(doc(db, COLLECTIONS.CUSTOMERS, customer.id), sanitizeForFirestore(customer));
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
@@ -464,7 +600,7 @@ export async function syncDeleteCustomer(customerId: string) {
 export async function syncSaveSale(sale: Sale) {
   const path = `${COLLECTIONS.SALES}/${sale.id}`;
   try {
-    await setDoc(doc(db, COLLECTIONS.SALES, sale.id), sale);
+    await setDoc(doc(db, COLLECTIONS.SALES, sale.id), sanitizeForFirestore(sale));
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
@@ -473,7 +609,7 @@ export async function syncSaveSale(sale: Sale) {
 export async function syncSaveMovement(movement: StockMovement) {
   const path = `${COLLECTIONS.MOVEMENTS}/${movement.id}`;
   try {
-    await setDoc(doc(db, COLLECTIONS.MOVEMENTS, movement.id), movement);
+    await setDoc(doc(db, COLLECTIONS.MOVEMENTS, movement.id), sanitizeForFirestore(movement));
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
@@ -486,7 +622,7 @@ export async function syncSaveSettings(settings: AppSettings): Promise<boolean> 
     updatedAt: settings.updatedAt || new Date().toISOString(),
   };
   try {
-    await setDoc(doc(db, COLLECTIONS.SETTINGS, 'global'), stamped, { merge: true });
+    await setDoc(doc(db, COLLECTIONS.SETTINGS, 'global'), sanitizeForFirestore(stamped), { merge: true });
     try {
       localStorage.setItem('optiboissons_settings_v2', JSON.stringify(stamped));
     } catch (e) {
@@ -502,7 +638,7 @@ export async function syncSaveSettings(settings: AppSettings): Promise<boolean> 
 export async function syncSaveExchangeRates(rates: ExchangeRateConfig) {
   const path = `${COLLECTIONS.EXCHANGE_RATES}/current`;
   try {
-    await setDoc(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'), rates);
+    await setDoc(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'), sanitizeForFirestore(rates));
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
@@ -511,10 +647,7 @@ export async function syncSaveExchangeRates(rates: ExchangeRateConfig) {
 export async function syncSaveExchangeTransaction(tx: ExchangeTransaction) {
   const path = `${COLLECTIONS.EXCHANGE_TRANSACTIONS}/${tx.id}`;
   try {
-    const cleanTx = Object.fromEntries(
-      Object.entries(tx).filter(([, v]) => v !== undefined)
-    );
-    await setDoc(doc(db, COLLECTIONS.EXCHANGE_TRANSACTIONS, tx.id), cleanTx);
+    await setDoc(doc(db, COLLECTIONS.EXCHANGE_TRANSACTIONS, tx.id), sanitizeForFirestore(tx));
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
@@ -531,28 +664,34 @@ export async function syncDeleteExchangeTransaction(txId: string) {
 
 export async function syncResetAllDataToDefault() {
   try {
-    const batch = writeBatch(db);
+    const ops: BatchWriteOp[] = [];
 
     INITIAL_PRODUCTS.forEach((p) => {
-      batch.set(doc(db, COLLECTIONS.PRODUCTS, p.id), p);
+      ops.push({ ref: doc(db, COLLECTIONS.PRODUCTS, p.id), data: p as unknown as Record<string, unknown> });
     });
     INITIAL_SELLERS.forEach((s) => {
-      batch.set(doc(db, COLLECTIONS.SELLERS, s.id), s);
+      ops.push({ ref: doc(db, COLLECTIONS.SELLERS, s.id), data: s as unknown as Record<string, unknown> });
     });
     INITIAL_CUSTOMERS.forEach((c) => {
-      batch.set(doc(db, COLLECTIONS.CUSTOMERS, c.id), c);
+      ops.push({ ref: doc(db, COLLECTIONS.CUSTOMERS, c.id), data: c as unknown as Record<string, unknown> });
     });
     const initialSales = generateInitialSales();
     initialSales.forEach((sale) => {
-      batch.set(doc(db, COLLECTIONS.SALES, sale.id), sale);
+      ops.push({ ref: doc(db, COLLECTIONS.SALES, sale.id), data: sale as unknown as Record<string, unknown> });
     });
     INITIAL_MOVEMENTS.forEach((m) => {
-      batch.set(doc(db, COLLECTIONS.MOVEMENTS, m.id), m);
+      ops.push({ ref: doc(db, COLLECTIONS.MOVEMENTS, m.id), data: m as unknown as Record<string, unknown> });
     });
-    batch.set(doc(db, COLLECTIONS.SETTINGS, 'global'), DEFAULT_SETTINGS);
-    batch.set(doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'), DEFAULT_EXCHANGE_RATES);
+    ops.push({
+      ref: doc(db, COLLECTIONS.SETTINGS, 'global'),
+      data: DEFAULT_SETTINGS as unknown as Record<string, unknown>,
+    });
+    ops.push({
+      ref: doc(db, COLLECTIONS.EXCHANGE_RATES, 'current'),
+      data: DEFAULT_EXCHANGE_RATES as unknown as Record<string, unknown>,
+    });
 
-    await batch.commit();
+    await commitSetOpsInChunks(ops);
   } catch (err) {
     console.error('Error resetting database to default:', err);
   }

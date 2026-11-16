@@ -85,7 +85,7 @@ export function useAppData() {
 
   // États de chargement, erreur et connectivité Cloud
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
-  const [isCloudConnected, setIsCloudConnected] = useState<boolean>(true);
+  const [isCloudConnected, setIsCloudConnected] = useState<boolean>(false);
   const [lastSyncTime, setLastSyncTime] = useState<string>('');
   const [syncError, setSyncError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -165,11 +165,30 @@ export function useAppData() {
   // Abonnements temps réel via la couche services/
   useEffect(() => {
     let active = true;
-    const markSynced = () => {
+    const markSynced = (fromServer = true) => {
       if (!active) return;
       setIsInitialLoading(false);
-      setIsCloudConnected(true);
-      setLastSyncTime(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
+      if (fromServer) {
+        setIsCloudConnected(true);
+        setSyncError(null);
+        setLastSyncTime(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
+      }
+    };
+
+    const handleSnapshotError = (err: Error) => {
+      if (!active) return;
+      setIsInitialLoading(false);
+      setIsCloudConnected(false);
+      const rawMsg = err?.message || '';
+      if (rawMsg.includes('permission-denied') || rawMsg.includes('insufficient permissions')) {
+        setSyncError(
+          'Accès refusé par Firestore (permissions ou identifiant de base différent sur ce déploiement). Ouvrez le Centre de Synchronisation Cloud.'
+        );
+      } else {
+        setSyncError(
+          'Connexion Cloud interrompue : mode hors-ligne actif, vos données seront synchronisées dès le retour du réseau.'
+        );
+      }
     };
 
     // Sécurité : ne bloque jamais l'interface plus de 1,5s si le réseau est lent ou hors-ligne
@@ -177,41 +196,59 @@ export function useAppData() {
       if (active) setIsInitialLoading(false);
     }, 1500);
 
-    cloudService.seedIfEmpty().catch(() => {
-      if (active) setIsInitialLoading(false);
+    // Vérifie la connectivité réelle avec le serveur Cloud au démarrage
+    cloudService.ping().then((pingRes) => {
+      if (!active) return;
+      if (pingRes.connected) {
+        setIsCloudConnected(true);
+        setSyncError(null);
+        setLastSyncTime(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
+      } else if (pingRes.errorCode === 'permission-denied') {
+        setIsCloudConnected(false);
+        setSyncError(
+          'Accès refusé par Firestore (vérifiez la base configurée et les variables VITE_FIREBASE_* sur Netlify).'
+        );
+      }
     });
 
-    const unsubProducts = productsService.subscribe((prods) => {
+    cloudService.seedIfEmpty().catch((err) => {
+      if (active) {
+        setIsInitialLoading(false);
+        handleSnapshotError(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+
+    const unsubProducts = productsService.subscribe((prods, fromServer) => {
       if (!active) return;
       setProducts(prods);
-      markSynced();
-    });
+      markSynced(fromServer);
+    }, handleSnapshotError);
 
-    const unsubSellers = sellersService.subscribe((sels) => {
+    const unsubSellers = sellersService.subscribe((sels, fromServer) => {
       if (!active) return;
       setSellers(sels);
-      markSynced();
-    });
+      markSynced(fromServer);
+    }, handleSnapshotError);
 
-    const unsubCustomers = customersService.subscribe((custs) => {
+    const unsubCustomers = customersService.subscribe((custs, fromServer) => {
       if (!active) return;
       setCustomers(custs);
-      markSynced();
-    });
+      markSynced(fromServer);
+    }, handleSnapshotError);
 
-    const unsubSales = salesService.subscribeSales((sls) => {
+    const unsubSales = salesService.subscribeSales((sls, fromServer) => {
       if (!active) return;
       setSales(sls);
-      markSynced();
-    });
+      markSynced(fromServer);
+    }, handleSnapshotError);
 
-    const unsubMovements = salesService.subscribeMovements((movs) => {
+    const unsubMovements = salesService.subscribeMovements((movs, fromServer) => {
       if (!active) return;
       setMovements(movs);
-      markSynced();
-    });
+      markSynced(fromServer);
+    }, handleSnapshotError);
 
-    const unsubSettings = settingsService.subscribeSettings((sett) => {
+    const unsubSettings = settingsService.subscribeSettings((sett, fromServer) => {
       if (!active) return;
       setSettings((prev) => {
         if (prev && prev.updatedAt && sett.updatedAt) {
@@ -224,20 +261,20 @@ export function useAppData() {
         }
         return sett;
       });
-      markSynced();
-    });
+      markSynced(fromServer);
+    }, handleSnapshotError);
 
-    const unsubRates = settingsService.subscribeExchangeRates((rates) => {
+    const unsubRates = settingsService.subscribeExchangeRates((rates, fromServer) => {
       if (!active) return;
       setExchangeRates(rates);
-      markSynced();
-    });
+      markSynced(fromServer);
+    }, handleSnapshotError);
 
-    const unsubTxs = settingsService.subscribeExchangeTransactions((txs) => {
+    const unsubTxs = settingsService.subscribeExchangeTransactions((txs, fromServer) => {
       if (!active) return;
       setExchangeTransactions(txs);
-      markSynced();
-    });
+      markSynced(fromServer);
+    }, handleSnapshotError);
 
     return () => {
       active = false;
@@ -259,6 +296,7 @@ export function useAppData() {
       await operation;
       setSyncError(null);
       setIsCloudConnected(true);
+      setLastSyncTime(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
     } catch (error) {
       console.error(errorContext, error);
       setIsCloudConnected(false);
@@ -274,8 +312,13 @@ export function useAppData() {
     const result = await cloudService.ping();
     setIsCloudConnected(result.connected);
     if (!result.connected) {
-      setSyncError('Impossible de joindre le serveur Cloud. Vérifiez votre connexion Internet.');
+      setSyncError(
+        result.errorCode === 'permission-denied'
+          ? 'Accès Firestore refusé sur ce déploiement (vérifiez VITE_FIREBASE_DATABASE_ID et les règles Firestore).'
+          : 'Impossible de joindre le serveur Cloud. Vérifiez votre connexion Internet.'
+      );
     } else {
+      setLastSyncTime(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }));
       notifySuccess('Connexion Cloud rétablie avec succès.');
     }
   }, [notifySuccess]);

@@ -50,6 +50,7 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showMobileModal, setShowMobileModal] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
 
   // Sync formData when settings prop updates from Cloud, only if user isn't currently editing
   useEffect(() => {
@@ -67,11 +68,14 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      alert("L'image sélectionnée est trop volumineuse (max 2 Mo). Veuillez choisir une image plus légère.");
+    if (file.size > 500 * 1024) {
+      setLogoError(
+        "L'image sélectionnée dépasse 500 Ko. Choisissez une image plus légère pour garantir la synchronisation Cloud."
+      );
       return;
     }
 
+    setLogoError(null);
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64 = event.target?.result as string;
@@ -291,8 +295,14 @@ export const SettingsManagementView: React.FC<SettingsManagementViewProps> = ({
                   )}
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
-                  Conseil imprimante thermique 80mm : préférez un logo net et contrasté (idéalement sur fond blanc ou transparent).
+                  Conseil imprimante thermique 80mm : préférez un logo net et contrasté (max 500 Ko, idéalement sur fond blanc ou transparent).
                 </p>
+                {logoError && (
+                  <p className="text-[11px] text-rose-600 font-medium mt-1.5 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{logoError}</span>
+                  </p>
+                )}
               </div>
 
               <div>
